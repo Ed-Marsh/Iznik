@@ -1,5 +1,5 @@
 ---
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-16
 owner: Freegle dev team
 covers:
   - iznik-nuxt3/pages/settings/**
@@ -7,6 +7,7 @@ covers:
   - iznik-nuxt3/pages/unsubscribe/**
   - iznik-nuxt3/pages/mydata.vue
   - iznik-nuxt3/components/StoryAddModal.vue
+  - iznik-nuxt3/components/NewsUserInfo.vue
   - iznik-nuxt3/pages/stories/[[groupid]].vue
   - iznik-nuxt3/pages/story/[id].vue
   # cross-stack behaviour tests (change when the behaviour changes)
@@ -138,7 +139,10 @@ community statistics and so you always have a record of what you gave or receive
 
 - **ChitChat** (`/chitchat`): a community discussion feed, separate from OFFER and WANTED
   posts. Chat about local goings-on, ask for recommendations, and so on. If a ChitChat
-  post looks like an item request, Freegle nudges you to use Give or Ask instead.
+  post looks like an item request, Freegle nudges you to use Give or Ask instead. Each
+  post and reply shows the poster's area and roughly how far away they are ("Fiveways - 3
+  miles", as the crow flies), because area names are not unique across the UK. It is not
+  shown on your own posts.
 - **Stories** (`/stories`): share why you freegle and the difference it has made,
   with a photo if you can. Stories with a photo are the ones Freegle can share to
   get more people freegling, and good stories may feature in a community newsletter.

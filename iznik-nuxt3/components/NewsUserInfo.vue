@@ -9,7 +9,12 @@
       <span v-if="newsfeed.location" class="pl-0">
         <v-icon icon="map-marker-alt" class="ms-2" />&nbsp;{{
           newsfeed.location
-        }}
+        }}<span
+          v-if="milesText"
+          class="poster-distance"
+          :title="DISTANCE_TOOLTIP"
+          >&nbsp;-&nbsp;{{ milesText }}</span
+        >
       </span>
       <span
         v-if="newsfeed.userinfo.openoffers + newsfeed.userinfo.openwanteds > 0"
@@ -48,8 +53,12 @@
 </template>
 <script setup>
 import pluralize from 'pluralize'
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useNewsfeedStore } from '~/stores/newsfeed'
+import { useUserStore } from '~/stores/user'
+import { useMe } from '~/composables/useMe'
+import { useMilesFromMe } from '~/composables/useMilesFromMe'
+import { DISTANCE_TOOLTIP } from '~/constants'
 
 const props = defineProps({
   id: {
@@ -60,9 +69,37 @@ const props = defineProps({
 
 const newsfeedStore = useNewsfeedStore()
 
+const userStore = useUserStore()
+const { myid } = useMe()
+
 const newsfeed = computed(() => {
   return newsfeedStore?.byId(props.id)
 })
+
+// Area names are not unique across the UK, so show how far away the poster is. Not for
+// your own posts, and not for Community News / Alerts, whose "poster" is a system
+// account with no real location. userStore.fetch caches and batches, so a feed page
+// costs a handful of /user requests rather than one per post.
+const distanceUserId = computed(() => {
+  const nf = newsfeed.value
+  if (!myid.value || !nf?.userid || nf.userid === myid.value) return null
+  if (nf.type === 'Alert') return null
+  return nf.userid
+})
+
+watch(
+  distanceUserId,
+  (id) => {
+    if (import.meta.client && id) {
+      userStore.fetch(id).catch(() => {})
+    }
+  },
+  { immediate: true }
+)
+
+const { milesText } = useMilesFromMe(() =>
+  distanceUserId.value ? userStore.byId(distanceUserId.value) : null
+)
 
 const openoffers = computed(() => {
   let ret = null
