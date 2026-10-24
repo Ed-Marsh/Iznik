@@ -36,4 +36,4 @@ Status API port 12045, Traefik HTTP 12048.
 | 9 | Docs: managing-members.md | ✅ | |
 | 10 | Browser check (Chrome MCP) | ✅ | modtools-dev-local: select all, copy (3 plain lines), confirm (3) all worked |
 | 11 | Lint, vitest, playwright via status API | ✅ | lint clean; all modtools unit specs pass; test-modtools-spammers.spec.js 9/9 on :12045 |
-| 12 | Push, PR | 🔄 | branch pushed |
+| 12 | Push, PR | ✅ | PR #1913 |
