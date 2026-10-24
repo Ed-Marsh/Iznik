@@ -157,8 +157,8 @@ import { useReplyToPost } from '~/composables/useReplyToPost'
 import { useMe } from '~/composables/useMe'
 import { useMobileStore } from '@/stores/mobile'
 import ChatButton from '~/components/ChatButton'
-const AskNameModal = defineAsyncComponent(() =>
-  import('~/components/AskNameModal.vue')
+const AskNameModal = defineAsyncComponent(
+  () => import('~/components/AskNameModal.vue')
 )
 const InterestedInOthersModal = defineAsyncComponent(
   () => import('~/components/InterestedInOthersModal.vue')

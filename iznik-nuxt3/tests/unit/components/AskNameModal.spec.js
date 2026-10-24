@@ -3,21 +3,30 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import AskNameModal from '~/components/AskNameModal.vue'
 
-const { mockHide, mockSaveName, mockSkipName, askNameOpen } = vi.hoisted(() => ({
-  mockHide: vi.fn(),
-  mockSaveName: vi.fn(),
-  mockSkipName: vi.fn(),
-  askNameOpen: { value: true },
-}))
+const { mockHide, mockSaveName, mockSkipName, askNameOpen } = vi.hoisted(
+  () => ({
+    mockHide: vi.fn(),
+    mockSaveName: vi.fn(),
+    mockSkipName: vi.fn(),
+    askNameOpen: { value: true },
+  })
+)
 
 vi.mock('~/composables/useOurModal', () => ({
   useOurModal: () => ({ modal: ref(null), hide: mockHide }),
 }))
 vi.mock('~/composables/useAskName', () => ({
-  useAskName: () => ({ askNameOpen, saveName: mockSaveName, skipName: mockSkipName }),
+  useAskName: () => ({
+    askNameOpen,
+    saveName: mockSaveName,
+    skipName: mockSkipName,
+  }),
 }))
 vi.mock('~/composables/useLockdownNotice', () => ({
-  useLockdownNotice: () => ({ lockdownError: ref(null), guardLockdown: (fn) => fn() }),
+  useLockdownNotice: () => ({
+    lockdownError: ref(null),
+    guardLockdown: (fn) => fn(),
+  }),
 }))
 
 function createWrapper() {
@@ -31,7 +40,8 @@ function createWrapper() {
           emits: ['hidden'],
         },
         'b-button': {
-          template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+          template:
+            '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
           props: ['variant', 'disabled'],
         },
         'b-form-input': {
@@ -54,7 +64,9 @@ describe('AskNameModal', () => {
   })
 
   it('says who sees the name', () => {
-    expect(createWrapper().text()).toContain('Other freeglers see it when you post or reply.')
+    expect(createWrapper().text()).toContain(
+      'Other freeglers see it when you post or reply.'
+    )
   })
 
   it('cannot save an empty name', async () => {
