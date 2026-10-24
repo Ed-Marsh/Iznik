@@ -96,7 +96,9 @@ describe('ModAlertReplyGate', () => {
     expect(modal.exists()).toBe(true)
     expect(modal.attributes('data-no-close-backdrop')).toBe('true')
     expect(modal.attributes('data-no-esc')).toBe('true')
-    expect(wrapper.text()).toContain('Testville Freegle volunteers need a reply')
+    expect(wrapper.text()).toContain(
+      'Testville Freegle volunteers need a reply'
+    )
     expect(wrapper.text()).toContain('A member needs help')
     expect(wrapper.text()).toContain('the member said this')
     expect(wrapper.find('.alert-body b').text()).toBe('phone')
@@ -107,9 +109,13 @@ describe('ModAlertReplyGate', () => {
     const wrapper = mountGate()
     await flushPromises()
 
-    expect(buttonWith(wrapper, 'Send reply').attributes('disabled')).toBeDefined()
+    expect(
+      buttonWith(wrapper, 'Send reply').attributes('disabled')
+    ).toBeDefined()
     await wrapper.find('textarea').setValue('   ')
-    expect(buttonWith(wrapper, 'Send reply').attributes('disabled')).toBeDefined()
+    expect(
+      buttonWith(wrapper, 'Send reply').attributes('disabled')
+    ).toBeDefined()
   })
 
   it('sends the reply through the store', async () => {
