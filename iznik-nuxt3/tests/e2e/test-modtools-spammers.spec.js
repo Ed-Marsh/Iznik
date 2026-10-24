@@ -244,9 +244,10 @@ test.describe('ModTools Spammer List', () => {
       `Added ${selectedCount} to the spammer list`,
       { timeout: timeouts.api.slowApi }
     )
-    await expect(page.locator('[data-test="bulk-count"]')).toContainText(
-      '0 selected'
-    )
+    // The selection is cleared afterwards. When every Pending Add row was
+    // confirmed the list, and the bar with it, is empty, so count boxes rather
+    // than reading the bar.
+    await expect(page.locator('.bulk-check input:checked')).toHaveCount(0)
 
     expect(badResponses).toHaveLength(0)
     expect(pageErrors).toHaveLength(0)
