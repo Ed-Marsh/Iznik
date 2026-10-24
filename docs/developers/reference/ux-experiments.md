@@ -847,16 +847,20 @@ does not.
 - **Who.** Anyone who sees the Join pane of the login modal (`components/LoginModal.vue`, the pane shown when the
   browser has never logged in or the member chose Join), on the website only. In arm `b` the **Your name**
   box is not drawn and the signup is sent with no `displayname`. Control is the four-field pane as it was. The
-  server already accepts an empty name (`PutUser`, `iznik-server-go/user/user.go`) and an empty name shows as "A
-  freegler". No new copy and no later name prompt is added here.
+  server already accepts an empty name (`PutUser`, `iznik-server-go/user/user.go`). It does not stay empty: the
+  first time the member is read, `InventName` makes one from the local part of their email address (tidied by
+  `TidyName`), or a generated name when that is unusable, stores it as `users.fullname` and sets
+  `users.inventedname`. "A freegler" is only the fallback when neither works. So other members see a name taken
+  from the joiner's email address. No new copy and no later name prompt is added here.
 - **Not a sign-in.** `loginNative` takes "no name, an email and a password" on the Join pane for a sign-in typed
   on the wrong pane and logs the member in. With the box hidden that is not the case, so the check is off in arm `b`.
   Social sign-in is unchanged in both arms.
 - **Reading the arm.** The arm is read once per page view, after mount, when the modal is open on the Join pane,
   because reading it counts the member as having seen the variant. In the app the arm is always control, as for
   every web experiment, so the app keeps the four-field pane.
-- **Also check by hand.** The share of new accounts with an empty `users.fullname` in each arm, so moderators are
-  not handed a flood of nameless members.
+- **Also check by hand.** The share of new accounts with `users.inventedname = 1` in each arm, and a sample of
+  those names, so moderators are not handed a flood of names made from email addresses. `users.fullname` is no
+  guide: it is filled with the invented name.
 - **Starting it.** After the PR is deployed and the manifest entry is live, on the batch host:
 
   ```bash
