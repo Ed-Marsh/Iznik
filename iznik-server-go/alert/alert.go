@@ -43,6 +43,7 @@ type Alert struct {
 	// Requirereply is the "moderators must reply" flag; the member's quoted email and the attachments
 	// are deliberately not here, because GetAlert is public.
 	Requirereply int    `json:"requirereply"`
+	Cancelled    string `json:"cancelled"`
 	Complete     string `json:"complete"`
 	Created      string `json:"created"`
 }
@@ -83,7 +84,7 @@ func GetAlert(c *fiber.Ctx) error {
 
 	var a Alert
 	db.Table("alerts").
-		Select("id, createdby, groupid, `from`, `to`, subject, text, html, askclick, tryhard, requirereply, complete, created").
+		Select("id, createdby, groupid, `from`, `to`, subject, text, html, askclick, tryhard, requirereply, cancelled, complete, created").
 		Where("id = ?", id).
 		Scan(&a)
 
@@ -131,6 +132,7 @@ func GetAlert(c *fiber.Ctx) error {
 			"askclick":     alertMap.Askclick,
 			"tryhard":      alertMap.Tryhard,
 			"requirereply": alertMap.Requirereply,
+			"cancelled":    alertMap.Cancelled,
 			"complete":     alertMap.Complete,
 			"created":      alertMap.Created,
 			"stats":        stats,
@@ -164,7 +166,7 @@ func ListAlerts(c *fiber.Ctx) error {
 
 	var alerts []Alert
 	db.Table("alerts").
-		Select("id, createdby, groupid, `from`, `to`, subject, text, html, askclick, tryhard, requirereply, complete, created").
+		Select("id, createdby, groupid, `from`, `to`, subject, text, html, askclick, tryhard, requirereply, cancelled, complete, created").
 		Order("created DESC").
 		Scan(&alerts)
 
