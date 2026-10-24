@@ -48,7 +48,7 @@ class GoogleChecksTest extends TestCase
             'freegle.google.ads.client_id' => 'cid',
             'freegle.google.ads.client_secret' => 'secret',
             'freegle.google.ads.refresh_token' => 'refresh',
-            'freegle.google.ads.api_version' => 'v21',
+            'freegle.google.ads.api_version' => 'v26',
         ]);
     }
 
@@ -78,10 +78,12 @@ class GoogleChecksTest extends TestCase
         $this->artisan('google:ads-check')->assertSuccessful();
 
         $summary = $this->row('google-ads')->last_summary;
-        foreach (['GOOGLE_ADS_DEVELOPER_TOKEN', 'GOOGLE_ADS_CUSTOMER_ID', 'GOOGLE_ADS_CLIENT_SECRET', 'GOOGLE_ADS_REFRESH_TOKEN'] as $name) {
+        foreach (['GOOGLE_ADS_CUSTOMER_ID', 'GOOGLE_ADS_CLIENT_SECRET', 'GOOGLE_ADS_REFRESH_TOKEN'] as $name) {
             $this->assertStringContainsString($name, $summary);
         }
         $this->assertStringNotContainsString('GOOGLE_ADS_CLIENT_ID', $summary);
+        // Optional: a Cloud project with Ads API access needs no developer token.
+        $this->assertStringNotContainsString('GOOGLE_ADS_DEVELOPER_TOKEN', $summary);
         Http::assertNothingSent();
     }
 
@@ -196,6 +198,9 @@ class GoogleChecksTest extends TestCase
             'googleads.googleapis.com/*' => Http::sequence()
                 ->push(['results' => [['customer' => ['status' => 'ENABLED']]]])
                 ->push(['results' => []])
+                ->push(['results' => []])
+                ->push(['results' => []])
+                ->push(['results' => []])
                 ->push(['results' => [['metrics' => ['impressions' => '1000', 'clicks' => '80', 'ctr' => 0.08]]]])
                 ->push(['results' => []]),
         ], $overrides));
@@ -211,10 +216,31 @@ class GoogleChecksTest extends TestCase
 
         $this->assertSame('success', $this->row('google-ads')->last_status);
         $this->assertStringContainsString('CTR 8.0% last month', $this->row('google-ads')->last_summary);
-        Http::assertSent(fn ($r) => str_contains($r->url(), '/v21/customers/1234567890/googleAds:search')
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/v26/customers/1234567890/googleAds:search')
             && $r->hasHeader('developer-token', 'dev')
             && $r->hasHeader('login-customer-id', '9998887777'));
         Mail::assertNothingSent();
+    }
+
+    public function test_ads_runs_without_a_developer_token_and_sends_none(): void
+    {
+        $this->ads();
+        config(['freegle.google.ads.developer_token' => '']);
+        $this->adsFake();
+
+        $this->artisan('google:ads-check')->assertSuccessful();
+
+        $this->assertSame('success', $this->row('google-ads')->last_status);
+        Http::assertSent(fn ($r) => str_contains($r->url(), 'googleads.googleapis.com/v26/'));
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'googleads.googleapis.com')
+            && $r->hasHeader('developer-token'));
+        Http::assertNotSent(fn ($r) => $r->hasHeader('login-customer-id'));
+    }
+
+    public function test_the_default_api_version_is_one_google_still_serves(): void
+    {
+        // v21 was already gone (404) and v22 refused as deprecated on 2026-10-24.
+        $this->assertSame('v26', config('freegle.google.ads.api_version'));
     }
 
     public function test_ads_reports_disapproval_suspension_low_ctr_and_low_quality_keywords(): void
@@ -234,6 +260,9 @@ class GoogleChecksTest extends TestCase
                         ],
                     ],
                 ]]])
+                ->push(['results' => []])
+                ->push(['results' => []])
+                ->push(['results' => []])
                 ->push(['results' => [['metrics' => ['impressions' => '1000', 'clicks' => '10', 'ctr' => 0.01]]]])
                 ->push(['results' => [['adGroupCriterion' => ['keyword' => ['text' => 'free stuff'], 'qualityInfo' => ['qualityScore' => 2]]]]]),
         ]);
@@ -247,6 +276,60 @@ class GoogleChecksTest extends TestCase
         $this->assertStringContainsString('under the Ad Grants floor', $summary);
         $this->assertStringContainsString('1 keyword(s) have Quality Score 1 or 2', $summary);
         Mail::assertSent(HousekeeperResultsMail::class, fn ($m) => $m->task === 'google-ads');
+    }
+
+    public function test_ads_reports_a_disapproved_asset_even_when_every_ad_is_approved(): void
+    {
+        // The shape Google returned on 2026-10-24: the logo approved as the business logo but
+        // disapproved as an ad image, in two campaigns, while every ad read APPROVED.
+        $logo = fn (string $campaign) => [
+            'campaign' => ['name' => $campaign, 'status' => 'ENABLED'],
+            'campaignAsset' => ['fieldType' => 'AD_IMAGE', 'primaryStatusReasons' => ['ASSET_DISAPPROVED']],
+            'asset' => [
+                'id' => '89216239329',
+                'name' => 'FreegleLogo.png',
+                'fieldTypePolicySummaries' => [
+                    ['assetFieldType' => 'BUSINESS_LOGO', 'policySummaryInfo' => ['approvalStatus' => 'APPROVED']],
+                    ['assetFieldType' => 'AD_IMAGE', 'policySummaryInfo' => [
+                        'approvalStatus' => 'DISAPPROVED',
+                        'policyTopicEntries' => [['topic' => 'IMAGE_EXTENSIONS_TEXT_OR_GRAPHIC_OVERLAY', 'type' => 'PROHIBITED']],
+                    ]],
+                ],
+            ],
+        ];
+        // Not eligible only because it awaits review: not a policy problem.
+        $pending = [
+            'customerAsset' => ['fieldType' => 'SITELINK'],
+            'asset' => ['id' => '7', 'name' => 'New sitelink', 'fieldTypePolicySummaries' => [
+                ['assetFieldType' => 'SITELINK', 'policySummaryInfo' => ['approvalStatus' => 'UNKNOWN']],
+            ]],
+        ];
+        $this->ads();
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'tok']),
+            'googleads.googleapis.com/*' => Http::sequence()
+                ->push(['results' => [['customer' => ['status' => 'ENABLED']]]])
+                ->push(['results' => []])
+                ->push(['results' => [$logo('Generic'), $logo('Brand')]])
+                ->push(['results' => []])
+                ->push(['results' => [$pending]])
+                ->push(['results' => [['metrics' => ['impressions' => '1000', 'clicks' => '80', 'ctr' => 0.08]]]])
+                ->push(['results' => []]),
+        ]);
+
+        $this->artisan('google:ads-check')->assertSuccessful();
+
+        $summary = $this->row('google-ads')->last_summary;
+        $this->assertSame('failure', $this->row('google-ads')->last_status);
+        $this->assertStringContainsString(
+            'FreegleLogo.png as AD_IMAGE, disapproved by IMAGE_EXTENSIONS_TEXT_OR_GRAPHIC_OVERLAY (PROHIBITED), in Generic, Brand',
+            $summary
+        );
+        $this->assertStringNotContainsString('New sitelink', $summary);
+        $this->assertStringNotContainsString('BUSINESS_LOGO', $summary);
+        Http::assertSent(fn ($r) => str_contains((string) $r->body(), 'FROM campaign_asset'));
+        Http::assertSent(fn ($r) => str_contains((string) $r->body(), 'FROM ad_group_asset'));
+        Http::assertSent(fn ($r) => str_contains((string) $r->body(), 'FROM customer_asset'));
     }
 
     public function test_ads_reports_api_errors(): void

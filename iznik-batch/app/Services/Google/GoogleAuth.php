@@ -52,7 +52,6 @@ class GoogleAuth
     public function adsToken(): string
     {
         $missing = $this->missing([
-            'GOOGLE_ADS_DEVELOPER_TOKEN' => 'freegle.google.ads.developer_token',
             'GOOGLE_ADS_CUSTOMER_ID' => 'freegle.google.ads.customer_id',
             'GOOGLE_ADS_CLIENT_ID' => 'freegle.google.ads.client_id',
             'GOOGLE_ADS_CLIENT_SECRET' => 'freegle.google.ads.client_secret',

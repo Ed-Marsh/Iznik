@@ -1678,6 +1678,8 @@ return [
             'inspect_posts' => (int) EnvSetting::env('GOOGLE_SEARCH_CONSOLE_INSPECT_POSTS', 3),
         ],
         'ads' => [
+            // Optional. Google now grants Ads API access to the Cloud project (Explorer or Basic level in
+            // the Cloud console), and a project with that access needs no developer token. Sent when set.
             'developer_token' => EnvSetting::env('GOOGLE_ADS_DEVELOPER_TOKEN', ''),
             'customer_id' => EnvSetting::env('GOOGLE_ADS_CUSTOMER_ID', ''),
             // Only needed when the account is reached through a manager account.
@@ -1685,8 +1687,9 @@ return [
             'client_id' => EnvSetting::env('GOOGLE_ADS_CLIENT_ID', ''),
             'client_secret' => EnvSetting::env('GOOGLE_ADS_CLIENT_SECRET', ''),
             'refresh_token' => EnvSetting::env('GOOGLE_ADS_REFRESH_TOKEN', ''),
-            // Google retires old API versions about a year after release; bump when it does.
-            'api_version' => EnvSetting::env('GOOGLE_ADS_API_VERSION', 'v21'),
+            // Google retires old API versions about a year after release; bump when it does. v21 was
+            // already gone (404) and v22 refused as deprecated on 2026-10-24.
+            'api_version' => EnvSetting::env('GOOGLE_ADS_API_VERSION', 'v26'),
             // The Ad Grants click-through floor. 0 turns the check off.
             'min_ctr' => (float) EnvSetting::env('GOOGLE_ADS_MIN_CTR', 0.05),
         ],

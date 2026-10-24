@@ -9,6 +9,10 @@ use Illuminate\Support\Facades\Http;
  *
  * - the account itself is enabled (not suspended or cancelled);
  * - no live ad is disapproved or limited by policy, with the policy named;
+ * - no asset in use (image, sitelink, callout and so on, linked to a live campaign, ad group or the
+ *   account) is disapproved. An asset is approved separately for each way it is used, so an ad can
+ *   be approved while an image it shows is not: the logo was disapproved as an ad image (text
+ *   overlay) on 2026-10-24 while every ad still read APPROVED;
  * - last month's click-through rate is above the Ad Grants floor (5%; Google
  *   deactivates a grant that stays under it);
  * - no live keyword has a Quality Score of 1 or 2 (also an Ad Grants rule).
@@ -32,6 +36,7 @@ class GoogleAdsService
 
             $this->checkAccount($token, $problems, $fine, $log);
             $this->checkPolicy($token, $problems, $fine, $log);
+            $this->checkAssets($token, $problems, $fine, $log);
             $this->checkCtr($token, $problems, $fine, $log);
             $this->checkKeywords($token, $problems, $fine, $log);
         } catch (GoogleApiException $e) {
@@ -91,6 +96,64 @@ class GoogleAdsService
         }
     }
 
+    private function checkAssets(string $token, array &$problems, array &$fine, array &$log): void
+    {
+        // The status fields in each WHERE must also be selected, or the API refuses the query.
+        $fields = 'asset.id, asset.name, asset.field_type_policy_summaries';
+        $links = [
+            'campaign_asset' => $this->query($token,
+                "SELECT campaign.name, campaign.status, campaign_asset.field_type, {$fields} FROM campaign_asset "
+                . "WHERE campaign.status = 'ENABLED' AND campaign_asset.status = 'ENABLED' "
+                . "AND campaign_asset.primary_status = 'NOT_ELIGIBLE'"),
+            'ad_group_asset' => $this->query($token,
+                "SELECT campaign.name, campaign.status, ad_group.status, ad_group_asset.field_type, {$fields} FROM ad_group_asset "
+                . "WHERE campaign.status = 'ENABLED' AND ad_group.status = 'ENABLED' AND ad_group_asset.status = 'ENABLED' "
+                . "AND ad_group_asset.primary_status = 'NOT_ELIGIBLE'"),
+            'customer_asset' => $this->query($token,
+                "SELECT customer_asset.field_type, {$fields} FROM customer_asset "
+                . "WHERE customer_asset.status = 'ENABLED' AND customer_asset.primary_status = 'NOT_ELIGIBLE'"),
+        ];
+
+        $by = [];
+        foreach ($links as $link => $rows) {
+            $key = lcfirst(str_replace('_', '', ucwords($link, '_')));
+            foreach ($rows as $row) {
+                $use = $row[$key]['fieldType'] ?? '?';
+                $asset = $row['asset'] ?? [];
+                $policy = null;
+                foreach ($asset['fieldTypePolicySummaries'] ?? [] as $summary) {
+                    if (($summary['assetFieldType'] ?? null) === $use) {
+                        $policy = $summary['policySummaryInfo'] ?? null;
+                    }
+                }
+                // Not eligible for some other reason (paused elsewhere, not yet reviewed): not a policy problem.
+                if (($policy['approvalStatus'] ?? null) !== 'DISAPPROVED') {
+                    continue;
+                }
+                $topics = [];
+                foreach ($policy['policyTopicEntries'] ?? [] as $entry) {
+                    $topics[] = ($entry['topic'] ?? 'unknown policy') . ' (' . ($entry['type'] ?? '?') . ')';
+                }
+                $what = ($asset['name'] ?? ('asset ' . ($asset['id'] ?? '?'))) . " as {$use}, disapproved by "
+                    . ($topics ? implode(' + ', $topics) : 'unknown policy');
+                $where = $row['campaign']['name'] ?? 'the account';
+                $by[$what][$where] = true;
+                $log[] = "Asset {$what} in {$where}";
+            }
+        }
+
+        if ($by === []) {
+            $fine[] = 'no assets disapproved';
+
+            return;
+        }
+
+        foreach ($by as $what => $where) {
+            $problems[] = "{$what}, in " . implode(', ', array_keys($where))
+                . '. Remove it from that use or replace it, in Assets';
+        }
+    }
+
     private function checkCtr(string $token, array &$problems, array &$fine, array &$log): void
     {
         $min = (float) config('freegle.google.ads.min_ctr');
@@ -142,7 +205,12 @@ class GoogleAdsService
         $version = (string) config('freegle.google.ads.api_version');
         $url = "https://googleads.googleapis.com/{$version}/customers/{$customer}/googleAds:search";
 
-        $headers = ['developer-token' => (string) config('freegle.google.ads.developer_token')];
+        // A developer token is only sent when one is set: a Cloud project with Ads API access needs none.
+        $headers = [];
+        $developer = (string) config('freegle.google.ads.developer_token');
+        if ($developer !== '') {
+            $headers['developer-token'] = $developer;
+        }
         $login = preg_replace('/\D/', '', (string) config('freegle.google.ads.login_customer_id'));
         if ($login !== '') {
             $headers['login-customer-id'] = $login;

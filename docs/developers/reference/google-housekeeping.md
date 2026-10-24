@@ -1,5 +1,5 @@
 ---
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-24
 owner: Freegle dev team
 covers:
   - iznik-batch/app/Services/Google/**
@@ -48,11 +48,17 @@ person to look at the website when the check names a fetch problem.
 ## Google Ads (Ad Grants)
 
 Auth is a normal OAuth client plus a refresh token, because the Ads API does not accept a bare
-service account. It also needs a developer token. It fails when:
+service account. API access belongs to the Cloud project: Google Ads API, Access levels in the Cloud
+console, at **Explorer** or above (Test only reaches test accounts). With that, no developer token is
+needed. It fails when:
 
 - the account status is not `ENABLED`;
 - any live ad is disapproved or limited, naming the policy (for example "Dating and companionship",
   which needs a certificate);
+- any asset in use (image, sitelink, callout and so on, on a live campaign, ad group or the account)
+  is disapproved. Google approves an asset separately for each way it is used, so an ad can read
+  approved while an image it shows is not: on 2026-10-24 the Freegle logo was approved as the business
+  logo but disapproved as an ad image (text or graphic overlay) in Brand and Generic;
 - last month's click-through rate is under 5% (the Ad Grants floor, `GOOGLE_ADS_MIN_CTR`), or there
   were no impressions;
 - any live keyword has a Quality Score of 1 or 2 (not allowed in Ad Grants).
@@ -69,12 +75,12 @@ here; never commit values.
 | `GOOGLE_SERVICE_ACCOUNT_B64` | Search Console. The service account JSON key, base64 encoded. Or `GOOGLE_SERVICE_ACCOUNT_FILE` for a path inside the container. |
 | `GOOGLE_SEARCH_CONSOLE_SITES` | Optional comma separated property URLs. Empty means every property the account can see. |
 | `GOOGLE_SEARCH_CONSOLE_SITEMAP` | Optional. Default `https://www.ilovefreegle.org/sitemap.xml`. |
-| `GOOGLE_ADS_DEVELOPER_TOKEN` | Ads. From the API Center of a Google Ads manager account. |
+| `GOOGLE_ADS_DEVELOPER_TOKEN` | Optional. Sent only when set. A project with Ads API access in the Cloud console needs none; the API Center form now only issues tokens for the App Conversion Tracking API. |
 | `GOOGLE_ADS_CUSTOMER_ID` | Ads. The 10 digit account ID, digits only. |
 | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | Ads. Only if the account is reached through a manager account. |
 | `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET` | Ads. An OAuth client of type Desktop app. |
 | `GOOGLE_ADS_REFRESH_TOKEN` | Ads. Obtained once by the account owner, see below. |
-| `GOOGLE_ADS_API_VERSION` | Optional. Default `v21`. Google retires versions about a year after release; bump it. |
+| `GOOGLE_ADS_API_VERSION` | Optional. Default `v26`. Google retires versions about a year after release; bump it (v21 was gone and v22 refused by October 2026). |
 
 ### Search Console setup (once)
 
@@ -89,17 +95,20 @@ here; never commit values.
 
 ### Google Ads setup (once)
 
-1. Developer token: sign in to a Google Ads **manager** account (create a free one and link the
-   Ad Grants account to it if there is none), Admin, API Center, apply for a token. Basic access
-   is enough for read-only use.
-2. In Google Cloud Console enable the **Google Ads API**, configure the OAuth consent screen,
-   and create an OAuth client of type Desktop app. That gives the client ID and secret.
-3. Get the refresh token once, signed in as a Google user with access to the Ads account:
-   use Google's OAuth Playground with your own client ID and secret, scope
-   `https://www.googleapis.com/auth/adwords`, then exchange the code. Put the refresh token in
+Done for Freegle on 2026-10-24 in the `freegle-1139` project, as geeks@.
+
+1. In Google Cloud Console enable the **Google Ads API**. Under Google Ads API, Access levels, apply
+   for **Explorer** (it allows calls to real accounts; approval took minutes). No developer token
+   is needed after that.
+2. In Google Auth Platform, create an OAuth client of type Desktop app. That gives the client ID and
+   secret. The consent screen must be **In production**: in Testing, refresh tokens expire after 7 days.
+3. Get the refresh token once, signed in as a Google user with access to the Ads account: an OAuth
+   loopback flow with that client, scope `https://www.googleapis.com/auth/adwords`,
+   `access_type=offline`, `prompt=consent`. Google asks the account to confirm it is really them,
+   which may need its passkey, so do it in a browser that has one. Put the refresh token in
    `GOOGLE_ADS_REFRESH_TOKEN`.
-4. Put the account ID in `GOOGLE_ADS_CUSTOMER_ID` (and the manager's in
-   `GOOGLE_ADS_LOGIN_CUSTOMER_ID` if used). Run `php artisan google:ads-check`.
+4. Put the account ID in `GOOGLE_ADS_CUSTOMER_ID` (FreegleAds is 495-138-8253). The signed-in user
+   reaches it directly, so `GOOGLE_ADS_LOGIN_CUSTOMER_ID` stays empty. Run `php artisan google:ads-check`.
 
 ## Tests
 
