@@ -1,5 +1,5 @@
 ---
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-24
 owner: Freegle dev team
 covers:
   - iznik-nuxt3/modtools/pages/members/**
@@ -134,6 +134,25 @@ safelisting and removals. You can add a member to the list, safelist someone wro
 flagged, or request a removal.
 
 Reporting a genuine spammer helps every community, not just yours.
+
+### Dealing with many at once
+
+A spammer often creates dozens of accounts with the same name and different email
+addresses. Both the spammer list and the members list have a bar above the rows for
+dealing with up to fifty of them in one go:
+
+- Tick the members you want, or **Select all shown**. The count shows how many you have.
+- On **Pending Add**, with Spam admin, **Confirm add to spammer list** confirms every
+  ticked report. A report somebody else is holding cannot be ticked there; release it
+  first. If one cannot be confirmed, the notice afterwards says which and why, and the
+  rest still go through.
+- On the members list, **Add N to spammer list** (Spam admin) or **Report N as spammers**
+  (everyone else) asks for one reason and uses it for all of them. Ticking a person who is
+  on several of your communities ticks them once.
+- **Copy list** puts the ticked members on the clipboard as plain text, one per line with
+  the fields separated by tabs: id, name, email, reason, date added and who reported them.
+  With nothing ticked it copies everything shown. It pastes into a spreadsheet as columns
+  and into a document as readable lines, with none of the page's other text.
 
 ## Chat review
 
