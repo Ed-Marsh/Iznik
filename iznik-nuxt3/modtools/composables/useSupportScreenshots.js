@@ -70,7 +70,8 @@ export function useSupportScreenshots() {
     const files = Array.from(fileList || [])
     for (const file of files) {
       if (!ACCEPTED.includes((file.type || '').toLowerCase())) {
-        screenshotError.value = 'Only PNG, JPEG, GIF or WebP pictures can be attached.'
+        screenshotError.value =
+          'Only PNG, JPEG, GIF or WebP pictures can be attached.'
         continue
       }
       if (screenshots.value.length >= MAX_SCREENSHOTS) {
@@ -80,7 +81,8 @@ export function useSupportScreenshots() {
       try {
         screenshots.value.push(await prepareScreenshot(file))
       } catch (e) {
-        screenshotError.value = 'One of the files could not be read as a picture.'
+        screenshotError.value =
+          'One of the files could not be read as a picture.'
       }
     }
   }
@@ -109,7 +111,14 @@ export function useSupportScreenshots() {
     return taken
   }
 
-  return { screenshots, screenshotError, addFiles, onPaste, removeScreenshot, takeScreenshots }
+  return {
+    screenshots,
+    screenshotError,
+    addFiles,
+    onPaste,
+    removeScreenshot,
+    takeScreenshots,
+  }
 }
 
 export function forHelper(list) {

@@ -90,14 +90,21 @@ describe('useSupportScreenshots', () => {
 
   it('refuses a file that is not a picture and keeps the others', async () => {
     const { screenshots, addFiles, screenshotError } = useSupportScreenshots()
-    await addFiles([file('notes.pdf', 'application/pdf'), file('1.png', 'image/png')])
+    await addFiles([
+      file('notes.pdf', 'application/pdf'),
+      file('1.png', 'image/png'),
+    ])
     expect(screenshots.value).toHaveLength(1)
     expect(screenshotError.value).toMatch(/PNG, JPEG, GIF or WebP/)
   })
 
   it('stops at the limit and says so', async () => {
     const { screenshots, addFiles, screenshotError } = useSupportScreenshots()
-    await addFiles(Array.from({ length: MAX_SCREENSHOTS + 2 }, (_, i) => file(`${i}.png`, 'image/png')))
+    await addFiles(
+      Array.from({ length: MAX_SCREENSHOTS + 2 }, (_, i) =>
+        file(`${i}.png`, 'image/png')
+      )
+    )
     expect(screenshots.value).toHaveLength(MAX_SCREENSHOTS)
     expect(screenshotError.value).toContain(String(MAX_SCREENSHOTS))
   })
@@ -112,7 +119,10 @@ describe('useSupportScreenshots', () => {
   it('takes pictures pasted from the clipboard', async () => {
     const { screenshots, onPaste } = useSupportScreenshots()
     const preventDefault = vi.fn()
-    onPaste({ preventDefault, clipboardData: { files: [file('p.png', 'image/png')] } })
+    onPaste({
+      preventDefault,
+      clipboardData: { files: [file('p.png', 'image/png')] },
+    })
     await new Promise((r) => setTimeout(r, 20))
     expect(preventDefault).toHaveBeenCalled()
     expect(screenshots.value).toHaveLength(1)
@@ -127,7 +137,8 @@ describe('useSupportScreenshots', () => {
   })
 
   it('removes one, and taking them empties the list', async () => {
-    const { screenshots, addFiles, removeScreenshot, takeScreenshots } = useSupportScreenshots()
+    const { screenshots, addFiles, removeScreenshot, takeScreenshots } =
+      useSupportScreenshots()
     await addFiles([file('1.png', 'image/png'), file('2.png', 'image/png')])
     removeScreenshot(0)
     expect(screenshots.value.map((s) => s.name)).toEqual(['2.png'])
@@ -136,9 +147,9 @@ describe('useSupportScreenshots', () => {
   })
 
   it('forHelper drops the preview', () => {
-    expect(forHelper([{ name: 'a', mime: 'image/png', data: 'D', preview: 'P' }])).toEqual([
-      { name: 'a', mime: 'image/png', data: 'D' },
-    ])
+    expect(
+      forHelper([{ name: 'a', mime: 'image/png', data: 'D', preview: 'P' }])
+    ).toEqual([{ name: 'a', mime: 'image/png', data: 'D' }])
     expect(forHelper(undefined)).toEqual([])
   })
 })

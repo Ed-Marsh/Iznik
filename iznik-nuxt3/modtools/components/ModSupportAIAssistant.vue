@@ -379,7 +379,10 @@
               {{ msg.role === 'user' ? 'You' : 'AI Assistant' }}
             </div>
             <div class="message-content" v-html="formatMessageContent(msg)" />
-            <div v-if="msg.images && msg.images.length" class="d-flex flex-wrap gap-2 mt-2">
+            <div
+              v-if="msg.images && msg.images.length"
+              class="d-flex flex-wrap gap-2 mt-2"
+            >
               <img
                 v-for="(img, i) in msg.images"
                 :key="i"
@@ -653,9 +656,7 @@ const referralRefs = ref([])
 // REFERRAL_SCREENSHOTS of them; the most recent ones win.
 const REFERRAL_SCREENSHOTS = 10
 const conversationScreenshots = computed(() =>
-  messages.value
-    .flatMap((m) => m.images || [])
-    .slice(-REFERRAL_SCREENSHOTS)
+  messages.value.flatMap((m) => m.images || []).slice(-REFERRAL_SCREENSHOTS)
 )
 
 // Template refs

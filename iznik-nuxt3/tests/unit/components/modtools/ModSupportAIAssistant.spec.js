@@ -1328,18 +1328,30 @@ describe('ModSupportAIAssistant', () => {
       const wrapper = await withConversation()
       mockFetch.mockReset()
       mockFetch
-        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, ref: 'SR-AAAAA' }) })
-        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, ref: 'SR-BBBBB' }) })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ ok: true, ref: 'SR-AAAAA' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ ok: true, ref: 'SR-BBBBB' }),
+        })
 
       wrapper.vm.referralNote = 'First.'
       await wrapper.vm.sendReferral()
       await flushPromises()
-      expect(JSON.parse(mockFetch.mock.calls[0][1].body).earlierRefs).toEqual([])
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body).earlierRefs).toEqual(
+        []
+      )
 
       wrapper.vm.referralNote = 'Second.'
       await wrapper.vm.sendReferral()
       await flushPromises()
-      expect(JSON.parse(mockFetch.mock.calls[1][1].body).earlierRefs).toEqual(['SR-AAAAA'])
+      expect(JSON.parse(mockFetch.mock.calls[1][1].body).earlierRefs).toEqual([
+        'SR-AAAAA',
+      ])
 
       wrapper.vm.changeUser()
       expect(wrapper.vm.referralRefs).toEqual([])
@@ -1348,11 +1360,25 @@ describe('ModSupportAIAssistant', () => {
     it('passes the screenshots from the whole investigation on with the referral', async () => {
       const wrapper = await withConversation()
       wrapper.vm.messages[0].images = [
-        { name: 'a.png', mime: 'image/png', data: 'AAAA', preview: 'data:image/png;base64,AAAA' },
-        { name: 'b.png', mime: 'image/png', data: 'BBBB', preview: 'data:image/png;base64,BBBB' },
+        {
+          name: 'a.png',
+          mime: 'image/png',
+          data: 'AAAA',
+          preview: 'data:image/png;base64,AAAA',
+        },
+        {
+          name: 'b.png',
+          mime: 'image/png',
+          data: 'BBBB',
+          preview: 'data:image/png;base64,BBBB',
+        },
       ]
       mockFetch.mockReset()
-      mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, ref: 'SR-4F2QW' }) })
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ok: true, ref: 'SR-4F2QW' }),
+      })
 
       wrapper.vm.referralNote = 'See the pictures.'
       await wrapper.vm.sendReferral()
@@ -1369,7 +1395,12 @@ describe('ModSupportAIAssistant', () => {
   })
 
   describe('screenshots on a question', () => {
-    const SHOT = { name: 'err.png', mime: 'image/png', data: 'AAAA', preview: 'data:image/png;base64,AAAA' }
+    const SHOT = {
+      name: 'err.png',
+      mime: 'image/png',
+      data: 'AAAA',
+      preview: 'data:image/png;base64,AAAA',
+    }
 
     async function withMember() {
       const wrapper = mountComponent()
@@ -1381,7 +1412,11 @@ describe('ModSupportAIAssistant', () => {
     it('sends the attached screenshots with the question and not the preview', async () => {
       const wrapper = await withMember()
       mockFetch.mockReset()
-      mockFetch.mockResolvedValue(sseResponse([{ type: 'result', analysis: 'Seen.', claudeSessionId: 's' }]))
+      mockFetch.mockResolvedValue(
+        sseResponse([
+          { type: 'result', analysis: 'Seen.', claudeSessionId: 's' },
+        ])
+      )
 
       wrapper.vm.screenshots.push(SHOT, { ...SHOT, name: 'two.png' })
       wrapper.vm.query = 'What is this error?'
@@ -1401,7 +1436,9 @@ describe('ModSupportAIAssistant', () => {
     it('sends no images field when nothing is attached', async () => {
       const wrapper = await withMember()
       mockFetch.mockReset()
-      mockFetch.mockResolvedValue(sseResponse([{ type: 'result', analysis: 'Ok.' }]))
+      mockFetch.mockResolvedValue(
+        sseResponse([{ type: 'result', analysis: 'Ok.' }])
+      )
 
       wrapper.vm.query = 'Plain question'
       await wrapper.vm.submitQuery()
@@ -1414,7 +1451,9 @@ describe('ModSupportAIAssistant', () => {
       const wrapper = await withMember()
       wrapper.vm.messages = [{ role: 'user', content: 'Look', images: [SHOT] }]
       await nextTick()
-      expect(wrapper.find('img.message-screenshot').attributes('src')).toBe(SHOT.preview)
+      expect(wrapper.find('img.message-screenshot').attributes('src')).toBe(
+        SHOT.preview
+      )
     })
   })
 })
