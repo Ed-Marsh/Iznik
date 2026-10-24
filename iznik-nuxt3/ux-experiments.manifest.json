@@ -16,6 +16,11 @@
       "name": "ask-description-optional",
       "opened": "2026-10-24",
       "pr": "https://github.com/Freegle/Iznik/pull/1907"
+    },
+    {
+      "name": "give-skip-options-screen",
+      "opened": "2026-10-24",
+      "pr": "https://github.com/Freegle/Iznik/pull/1908"
     }
   ]
 }
