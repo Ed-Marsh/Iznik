@@ -924,7 +924,14 @@ does not.
   first time the member is read, `InventName` makes one from the local part of their email address (tidied by
   `TidyName`), or a generated name when that is unusable, stores it as `users.fullname` and sets
   `users.inventedname`. "A freegler" is only the fallback when neither works. So other members see a name taken
-  from the joiner's email address. No new copy and no later name prompt is added here.
+  from the joiner's email address.
+- **Asked later.** Givers choose a real name more often when several people reply (live data, 90 days to
+  2026-10-24: from the third reply on, 19% of real-name repliers were chosen against 14% of invented-name ones,
+  accounts over 30 days old). So an arm `b` signup sets `asknamelater` in the member's settings
+  (`composables/useAskName.js`), and the next time they send a reply or finish a post, `AskNameModal` asks
+  "What's your name?" once it has gone, so the ask never stops either from finishing. Save stores the
+  `displayname` and clears the flag; Not now keeps it, so the next post or reply asks again. Client log events
+  `ask_name_shown`, `ask_name_saved` and `ask_name_skipped` count it. Nobody but an arm `b` joiner has the flag.
 - **Not a sign-in.** `loginNative` takes "no name, an email and a password" on the Join pane for a sign-in typed
   on the wrong pane and logs the member in. With the box hidden that is not the case, so the check is off in arm `b`.
   Social sign-in is unchanged in both arms.
@@ -933,7 +940,8 @@ does not.
   every web experiment, so the app keeps the four-field pane.
 - **Also check by hand.** The share of new accounts with `users.inventedname = 1` in each arm, and a sample of
   those names, so moderators are not handed a flood of names made from email addresses. `users.fullname` is no
-  guide: it is filled with the invented name.
+  guide: it is filled with the invented name. And how often each arm's joiners are chosen (`messages_by` or
+  `messages_promises`) on Offers with three or more repliers, where a missing name has been seen to cost them.
 - **Starting it.** After the PR is deployed and the manifest entry is live, on the batch host:
 
   ```bash
@@ -947,7 +955,8 @@ does not.
   ```
 
 - **Cleanup.** Adopted: the box and the `displayname` go from `LoginModal.vue`, with the `confused` check, and
-  the arm read goes. Reverted, inconclusive or stopped: the arm read, `nameHidden` and the tests go, then
+  the arm read goes; the ask-later prompt stays for every nameless signup. Reverted, inconclusive or stopped: the arm read, `nameHidden`, `useAskName`,
+  `AskNameModal` and the tests go (members still flagged are simply never asked), then
   `ux:experiment close join-name-optional --cleanup-pr=<url>`.
 
 ## Experiments in mail, push and the server

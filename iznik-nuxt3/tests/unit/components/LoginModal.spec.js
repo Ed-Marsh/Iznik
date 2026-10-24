@@ -79,6 +79,15 @@ vi.mock('~/composables/useFlowTelemetry', () => ({
   flowArm: (...args) => mockFlowArm(...args),
 }))
 
+// A member who joins in arm b is asked for a name when they next post or reply.
+const { mockMarkAskNameLater } = vi.hoisted(() => ({
+  mockMarkAskNameLater: vi.fn(() => Promise.resolve()),
+}))
+
+vi.mock('~/composables/useAskName', () => ({
+  useAskName: () => ({ markAskNameLater: mockMarkAskNameLater }),
+}))
+
 // Mock stores with getter syntax for reactive values
 vi.mock('~/stores/auth', () => ({
   useAuthStore: () => ({
@@ -255,6 +264,7 @@ describe('LoginModal', () => {
   let wrapper = null
 
   beforeEach(() => {
+    mockMarkAskNameLater.mockClear()
     vi.clearAllMocks()
 
     // Reset mock data
@@ -783,6 +793,8 @@ describe('LoginModal', () => {
         email: 'test@example.com',
         password: 'password123',
       })
+      // They gave a name, so nobody asks for one later.
+      expect(mockMarkAskNameLater).not.toHaveBeenCalled()
     })
 
     it('shows error when sign up fails', async () => {
@@ -891,6 +903,8 @@ describe('LoginModal', () => {
         email: 'test@example.com',
         password: 'password123',
       })
+      // No name was given, so they are asked for one when they next post or reply.
+      expect(mockMarkAskNameLater).toHaveBeenCalledTimes(1)
     })
 
     it('arm b still asks for an email and a password', async () => {

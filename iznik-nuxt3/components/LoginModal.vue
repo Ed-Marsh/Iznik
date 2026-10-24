@@ -249,6 +249,7 @@
   </b-modal>
 </template>
 <script setup>
+import { useAskName } from '~/composables/useAskName'
 import {
   ref,
   computed,
@@ -432,6 +433,7 @@ function readExperimentArm() {
   experimentArm.value = flowArm(FlowName.LOGIN, 'join-name-optional')
 }
 
+const { markAskNameLater } = useAskName()
 const nameHidden = computed(() => experimentArm.value === 'b' && signUp.value)
 
 const fullNameError = computed(() => {
@@ -620,6 +622,11 @@ function loginNative(e) {
 
           // Pick up the new user
           await authStore.fetchUser()
+
+          // Experiment join-name-optional: they gave no name, so ask for one when they next post or reply.
+          if (nameHidden.value) {
+            await markAskNameLater()
+          }
 
           if (route.path === '/' || !route.path) {
             // We've signed up from the home page.  Send them to the explore page to find a group.
