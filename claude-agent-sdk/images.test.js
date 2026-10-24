@@ -67,3 +67,9 @@ test('with no pictures the prompt is the plain question, with pictures it is a o
   assert.strictEqual(seen[0].session_id, 'abc')
   assert.strictEqual(seen[0].message.content[1].type, 'image')
 })
+
+test('a referral may carry more pictures than one question', () => {
+  const ten = Array.from({ length: 10 }, () => ({ mime: 'image/png', data: PNG }))
+  assert.strictEqual(validateImages(ten, 10).images.length, 10)
+  assert.match(validateImages(ten).error, /at most 5/)
+})

@@ -156,7 +156,7 @@ app.get('/health', (req, res) => {
  */
 const { runSupportQuery, driverMode } = require('./support-agent')
 const { verifyModerator } = require('./auth')
-const { validateImages } = require('./images')
+const { validateImages, MAX_REFERRAL_IMAGES } = require('./images')
 
 // Up to 5 screenshots of 4MB (12MB together) as base64 is about 16MB.
 app.post('/api/log-analysis', express.json({ limit: '20mb' }), async (req, res) => {
@@ -388,7 +388,7 @@ app.post('/api/refer-to-geeks', express.json({ limit: REFERRAL_BODY_LIMIT }), as
 
   const { member, note, deviceSummary, messages, totals, modToolsUrl, earlierRefs } = req.body || {}
   // The screenshots from the investigation, passed on to the geeks with the referral.
-  const { images: screenshots, error: screenshotError } = validateImages((req.body || {}).screenshots)
+  const { images: screenshots, error: screenshotError } = validateImages((req.body || {}).screenshots, MAX_REFERRAL_IMAGES)
   if (screenshotError) {
     return res.status(400).json({ error: 'BAD_IMAGES', message: screenshotError })
   }

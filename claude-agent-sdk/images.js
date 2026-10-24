@@ -10,6 +10,7 @@
  */
 
 const MAX_IMAGES = 5
+const MAX_REFERRAL_IMAGES = 10
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024
 const MAX_TOTAL_BYTES = 12 * 1024 * 1024
 const ALLOWED_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
@@ -39,11 +40,11 @@ function safeName(name, mime, index) {
  * @param {unknown} list  what the client sent
  * @returns {{images: Array<{name:string, mime:string, data:string, bytes:number}>, error: string|null}}
  */
-function validateImages(list) {
+function validateImages(list, max = MAX_IMAGES) {
   if (list === undefined || list === null) return { images: [], error: null }
   if (!Array.isArray(list)) return { images: [], error: 'Screenshots must be a list.' }
-  if (list.length > MAX_IMAGES) {
-    return { images: [], error: `Please attach at most ${MAX_IMAGES} screenshots.` }
+  if (list.length > max) {
+    return { images: [], error: `Please attach at most ${max} screenshots.` }
   }
 
   const images = []
@@ -109,6 +110,7 @@ function buildPrompt(text, images, sessionId) {
 
 module.exports = {
   MAX_IMAGES,
+  MAX_REFERRAL_IMAGES,
   MAX_IMAGE_BYTES,
   MAX_TOTAL_BYTES,
   ALLOWED_MIMES,
