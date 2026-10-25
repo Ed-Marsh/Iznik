@@ -881,7 +881,7 @@ taker rated the poster after 5% (nobody asks: the thumbs are in the chat header,
     --change="For half of signed-in members arriving on the web with an unrated handover in the last 14 days, a modal lists up to three people with thumbs up, thumbs down and Skip. At most once a day." \
     --expected="Far more ratings per outcome start, with members finishing outcomes, replies and posts as often." \
     --primary-event=user_rated --base-rate=0.4 --expected-points=10 \
-    --touches=chat_outcome,reply,give --pr=<the PR>
+    --touches=chat_outcome,reply,give --pr=https://github.com/Freegle/Iznik/pull/1921
   php artisan ux:experiment start rate-on-return
   ```
 

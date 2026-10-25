@@ -35,7 +35,7 @@ Primary event `user_rated` per start of `chat_outcome` (new entry in the two eve
 | 1 | Go `GET /user/unrated` + tests | ✅ | `user/unrated.go`, route before `/user/:id?` |
 | 2 | `user_rated` in both primary-event lists + tests | ✅ | Go `ux/experiments.go`, PHP `UxExperimentService` |
 | 3 | Frontend: API, store logging, composable, modal, LayoutCommon, manifest | ✅ | |
-| 4 | Unit tests (composable, modal, store, LayoutCommon stub, manifest) | 🔄 | |
-| 5 | e2e: post, reply, served unrated list, modal, rate, day gate, control, real endpoint | 🔄 | written, prod-local rebuilding | |
+| 4 | Unit tests (composable, modal, store, LayoutCommon stub, manifest) | ✅ | |
+| 5 | e2e: post, reply, served unrated list, modal, rate, day gate, control, real endpoint | ✅ | passed against rebuilt prod-local | |
 | 6 | Docs section + covers, docs freshness | ✅ | |
-| 7 | Run Go, Laravel, vitest, playwright in the worktree; push; PR with Blocked label | ⬜ | |
+| 7 | Run Go, Laravel, vitest, playwright in the worktree; push; PR with Blocked label | ✅ | PR #1921, CI running | |
