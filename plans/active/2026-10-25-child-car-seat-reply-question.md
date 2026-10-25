@@ -12,5 +12,6 @@ host memory too low for a second running stack, so the database Go tests run in 
 | 2 | Go tests: pure (words, wording) and API (arms, app, once, wanted, damaged, TN) | ✅ | compile-checked with go vet; run in CI |
 | 3 | Posting note for car seats: offer and wanted wording, more words | ✅ | PostItem.vue, spec passes |
 | 4 | Docs: chat-prompts, ux-experiments, members/getting | ✅ | freshness check OK |
-| 5 | Push, PR, CI green | 🔄 | |
-| 6 | Discourse 9939: reply with what was built, ask Saira/Neil to confirm the offerer wording | ⬜ | after the PR is up |
+| 5 | Push, PR, CI green | ✅ | PR #1914, pipeline 13589 green |
+| 6 | Discourse 9939: reply with what was built, ask Saira/Neil to confirm the offerer wording | ✅ | post #64 |
+| 7 | Screenshots in the PR: posting note, chat question | 🔄 | |
