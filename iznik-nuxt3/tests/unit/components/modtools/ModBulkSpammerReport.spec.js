@@ -53,6 +53,12 @@ describe('ModBulkSpammerReport', () => {
     expect(w.text()).toContain('already on the list is left as they are')
   })
 
+  it('reads naturally for one member', () => {
+    const w = mountModal({ count: 1 })
+    expect(w.find('.title').text()).toBe('Report 1 as a spammer')
+    expect(w.text()).toContain('This member will be reported')
+  })
+
   it('will not send without a reason', async () => {
     const w = mountModal()
     const send = w.find('[data-test="bulk-spam-send"]')

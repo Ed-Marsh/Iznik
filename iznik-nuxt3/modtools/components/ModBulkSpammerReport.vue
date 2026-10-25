@@ -8,9 +8,9 @@
   >
     <template #default>
       <p>
-        These {{ count }} members will be reported to the Spam team, who will
-        check them before they are added to the list. Anyone already reported or
-        already on the list is left as they are.
+        {{ who }} will be reported to the Spam team, who will check before
+        adding anyone to the list. Anyone already reported or already on the
+        list is left as they are.
       </p>
       <p>
         Spammers must have
@@ -64,7 +64,15 @@ const { modal, hide } = useOurModal()
 
 const reason = ref(null)
 
-const title = computed(() => `Report ${props.count} as spammers`)
+const title = computed(() =>
+  props.count === 1
+    ? 'Report 1 as a spammer'
+    : `Report ${props.count} as spammers`
+)
+
+const who = computed(() =>
+  props.count === 1 ? 'This member' : `These ${props.count} members`
+)
 
 function send() {
   if (reason.value && reason.value.trim()) {
