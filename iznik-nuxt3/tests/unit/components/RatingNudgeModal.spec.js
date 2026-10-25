@@ -61,6 +61,7 @@ function mountModal() {
     global: {
       stubs: {
         'b-modal': {
+          name: 'BModal',
           template:
             '<div class="b-modal"><div class="modal-title">{{ title }}</div><slot /><slot name="footer" /></div>',
           props: ['scrollable', 'title', 'noCloseOnBackdrop'],
@@ -214,7 +215,7 @@ describe('RatingNudgeModal', () => {
     const wrapper = mountModal()
     await flushPromises()
 
-    wrapper.findComponent({ name: 'b-modal' }).vm.$emit('hidden')
+    wrapper.findComponent({ name: 'BModal' }).vm.$emit('hidden')
     await flushPromises()
 
     expect(ratingNudgeOpen.value).toBe(false)
