@@ -109,6 +109,7 @@
           :msgid="interestedInOthersMsgid"
           :userid="interestedInOthersUserId"
         />
+        <RatingNudge />
         <!-- Height detection divs -->
         <div ref="mobileTallDetector" class="mobile-tall-detector" />
         <div ref="desktopTallDetector" class="desktop-tall-detector" />
@@ -157,6 +158,9 @@ import { useMobileStore } from '@/stores/mobile'
 import ChatButton from '~/components/ChatButton'
 const InterestedInOthersModal = defineAsyncComponent(
   () => import('~/components/InterestedInOthersModal.vue')
+)
+const RatingNudge = defineAsyncComponent(
+  () => import('~/components/RatingNudge.vue')
 )
 const DeletedRestore = defineAsyncComponent(
   () => import('~/components/DeletedRestore.vue')

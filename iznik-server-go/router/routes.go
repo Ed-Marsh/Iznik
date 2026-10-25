@@ -1048,6 +1048,14 @@ func SetupRoutes(app *fiber.App) {
 		// @Router /user/unsubscribe [post]
 		rg.Get("/user/unsubscribe", user.Unsubscribe)
 		rg.Post("/user/unsubscribe", user.Unsubscribe)
+		// @Summary People the member has not rated
+		// @Description Lists the freeglers the logged-in member handed an item over with in the last 14 days (either direction) and has not rated, newest first, one entry per person, at most five. Used by the rate-on-return experiment to ask on the next visit. Registered before /user/:id? so "unrated" is not treated as a user id.
+		// @Tags users
+		// @Produce json
+		// @Success 200 {array} user.Unrated
+		// @Failure 401 {object} fiber.Error "Not logged in"
+		// @Router /user/unrated [get]
+		rg.Get("/user/unrated", user.GetUnrated)
 		rg.Get("/user/:id?", user.GetUser)
 
 		// User Actions (POST)
