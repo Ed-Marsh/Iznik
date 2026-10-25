@@ -2,110 +2,131 @@
 
 namespace App\Services;
 
-use App\Services\Embedding\EmbedderContract;
-use App\Services\Embedding\NodeEmbedder;
 use App\Support\ItemMatchKey;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Find a picture we already have for an item name we have not seen, so the post reuses it
- * instead of a new one being generated. A match is kept as an alias, so the same name
- * matches at once next time, and the post form (apiv2) shows it straight away.
+ * Find the picture for an item name we have no picture for. ItemCleanerService says which item
+ * the name means; every item has at most one picture, found by its ItemMatchKey. So "Aluminium
+ * walking frame" and "Walking frame wanted" share the "walking frame" picture, and only an item
+ * we have never drawn is generated - drawn from the item, so the next variant finds it too.
  *
- * In order: an alias; the same ItemMatchKey ("3 bags of cat litter" = "Cat litter"); then the
- * nearest name by embedding, if close enough. The thresholds come from a blind-judged replay
- * of three months of production names: docs/developers/reference/ai-item-images.md.
+ * Both lookups are kept in ai_image_aliases: the post's wording ('item'), which the Go API reads
+ * at compose time, and the item key ('itemkey'). Replayed against every post picture since
+ * December 2025, the share of new names needing a picture falls month on month, from 61% to
+ * 21%: docs/developers/reference/ai-item-images.md.
  */
 class AiImageMatcherService
 {
-    /** Nearest name whose head noun agrees ("Sofa bed that folds" -> "Sofa bed"). */
-    public const HEAD_THRESHOLD = 0.85;
-
-    /** Nearest name regardless of head noun - only when very close ("Lap top or computer" -> "Laptop"). */
-    public const ANY_THRESHOLD = 0.92;
-
-    /** Library names embedded per run, so a backfill is spread over runs. */
-    private const EMBED_PER_RUN = 500;
-
-    private EmbedderContract $embedder;
-
-    /** @var array<string,int>|null ItemMatchKey => ai_images.id */
-    private ?array $keys = null;
-
-    /** @var list<array{id:int,head:?string,vec:string}>|null vec is the packed float32 embedding */
-    private ?array $library = null;
-
-    public function __construct(?EmbedderContract $embedder = null)
-    {
-        $this->embedder = $embedder ?? new NodeEmbedder('search_query');
-    }
+    public function __construct(private ItemCleanerService $cleaner) {}
 
     /**
      * @param  list<string>  $names  item names with no picture of their own
-     * @return array<string,string> name => externaluid of the picture to reuse
+     * @return array{reuse: array<string,string>, items: array<string,string>}
+     *                                                                         reuse: name => externaluid of a picture to use now;
+     *                                                                         items: name => the item to draw for a name that needs a new picture.
+     *                                                                         A name in neither is generated from its own wording, as before.
      */
     public function matchMany(array $names, bool $dryRun = false): array
     {
         $names = array_values(array_unique(array_filter($names, fn ($n) => $n !== '')));
-        if (! $names) {
-            return [];
-        }
+        $reuse = $names ? $this->aliasLookup($names) : [];
+        $items = [];
 
-        $found = $this->aliases($names);
-        $left = array_values(array_filter($names, fn ($n) => ! isset($found[$n])));
-        if (! $left) {
-            return $found;
-        }
-
-        $this->loadLibrary($dryRun);
-
-        $toEmbed = [];
-        foreach ($left as $i => $name) {
-            $id = $this->keys[ItemMatchKey::key($name)] ?? null;
-            if ($id) {
-                $found[$name] = $this->recordAlias($name, $id, 'key', null, $dryRun);
-            } else {
-                $toEmbed["q$i"] = $name;
+        $left = array_values(array_filter($names, fn ($n) => ! isset($reuse[$n])));
+        foreach ($this->cleaner->clean($left) as $name => $item) {
+            if ($item === ItemCleanerService::NONE) {
+                continue;
             }
-        }
-
-        if ($toEmbed && $this->library) {
-            $vectors = $this->embedder->embed($toEmbed);
-            if ($vectors === false) {
-                // Not matching is safe: the names are generated as they always were.
-                Log::warning('AiImageMatcher: embedding failed, generating instead');
-
-                return array_filter($found);
+            $key = ItemMatchKey::key($item);
+            if ($key === '') {
+                continue;
             }
-            foreach ($toEmbed as $qid => $name) {
-                $match = isset($vectors[$qid]) ? $this->nearest($vectors[$qid], ItemMatchKey::head($name)) : null;
-                if ($match) {
-                    $found[$name] = $this->recordAlias($name, $match[0], 'embedding', $match[1], $dryRun);
+            $found = $this->aliasLookup([$key])[$key] ?? null;
+            if ($found) {
+                $reuse[$name] = $found;
+                if (! $dryRun) {
+                    $this->alias($name, $this->imageId($found), 'item');
                 }
+                Log::info("AiImageMatcher: '{$name}' is a '{$item}', reusing its picture");
+            } elseif ($this->drawable($item)) {
+                $items[$name] = $item;
             }
         }
 
-        return array_filter($found);
+        return ['reuse' => $reuse, 'items' => $items];
     }
 
     /**
-     * @param  list<string>  $names
-     * @return array<string,string>
+     * A picture was just drawn for $item on behalf of a post called $name: point both at it,
+     * so the next variant of the item, and the next post with this wording, find it.
      */
-    private function aliases(array $names): array
+    public function recordGenerated(string $name, string $item, string $externalUid): void
     {
-        $rows = DB::table('ai_image_aliases')
+        $id = $this->imageId($externalUid);
+        if (! $id) {
+            return;
+        }
+        $this->alias(ItemMatchKey::key($item), $id, 'itemkey');
+        if (mb_strtolower($name) !== mb_strtolower($item)) {
+            $this->alias($name, $id, 'item');
+        }
+    }
+
+    /**
+     * Give existing pictures their item key, most-used first so a key shared by several
+     * pictures goes to the best-known one. Returns how many names were cleaned.
+     */
+    public function backfill(int $offset, int $limit): int
+    {
+        $rows = DB::table('ai_images')
+            ->where('status', 'active')
+            ->whereNotNull('externaluid')
+            ->where('usage_count', '>', 0)
+            ->orderByDesc('usage_count')
+            ->orderBy('id')
+            ->offset($offset)
+            ->limit($limit)
+            ->get(['id', 'name']);
+
+        $items = $this->cleaner->clean($rows->pluck('name')->all());
+        foreach ($rows as $r) {
+            $item = $items[$r->name] ?? null;
+            if ($item && $item !== ItemCleanerService::NONE) {
+                $this->alias(ItemMatchKey::key($item), (int) $r->id, 'itemkey');
+            }
+        }
+
+        return $items ? $rows->count() : 0;
+    }
+
+    /**
+     * Pictures for names, through an alias or a picture of that very name, active only.
+     *
+     * @param  list<string>  $names
+     * @return array<string,string> name => externaluid
+     */
+    private function aliasLookup(array $names): array
+    {
+        $viaAlias = DB::table('ai_image_aliases')
             ->join('ai_images', 'ai_images.id', '=', 'ai_image_aliases.aiimageid')
             ->whereIn('ai_image_aliases.name', $names)
             ->where('ai_images.status', 'active')
             ->whereNotNull('ai_images.externaluid')
-            ->get(['ai_image_aliases.name', 'ai_images.externaluid']);
+            ->pluck('ai_images.externaluid', 'ai_image_aliases.name');
+        $direct = DB::table('ai_images')
+            ->whereIn('name', $names)
+            ->where('status', 'active')
+            ->whereNotNull('externaluid')
+            ->pluck('externaluid', 'name');
 
         // The collation matches "Sofas" to a stored "sofas"; give the caller back its own spelling.
         $byLower = [];
-        foreach ($rows as $r) {
-            $byLower[mb_strtolower($r->name)] = $r->externaluid;
+        foreach ([$viaAlias, $direct] as $found) {
+            foreach ($found as $n => $uid) {
+                $byLower[mb_strtolower($n)] ??= $uid;
+            }
         }
         $out = [];
         foreach ($names as $n) {
@@ -117,130 +138,29 @@ class AiImageMatcherService
         return $out;
     }
 
-    /** @return array{0:int,1:float}|null */
-    private function nearest(array $q, ?string $head): ?array
-    {
-        $best = null;
-        $bestScore = 0.0;
-        foreach ($this->library as $entry) {
-            $v = unpack('g*', $entry['vec']);
-            $s = 0.0;
-            for ($k = 0; $k < EmbeddingService::EMBEDDING_DIM; $k++) {
-                $s += $q[$k] * $v[$k + 1];
-            }
-            if ($s <= $bestScore) {
-                continue;
-            }
-            $agrees = $s >= self::HEAD_THRESHOLD && ItemMatchKey::headsAgree($head, $entry['head']);
-            if ($agrees || $s >= self::ANY_THRESHOLD) {
-                $best = $entry['id'];
-                $bestScore = $s;
-            }
-        }
-
-        return $best ? [$best, $bestScore] : null;
-    }
-
-    private function recordAlias(string $name, int $aiImageId, string $method, ?float $score, bool $dryRun): string
-    {
-        if (! $dryRun) {
-            DB::table('ai_image_aliases')->insertOrIgnore([
-                'name' => mb_substr($name, 0, 255),
-                'aiimageid' => $aiImageId,
-                'method' => $method,
-                'score' => $score,
-            ]);
-        }
-        Log::info("AiImageMatcher: '{$name}' reuses image {$aiImageId} ({$method}".($score ? ' '.round($score, 3) : '').')');
-
-        return (string) DB::table('ai_images')->where('id', $aiImageId)->value('externaluid');
-    }
-
     /**
-     * The library is every active picture a post has used. Pictures without an embedding yet
-     * get one here, a few hundred a run, so new pictures join it and a backfill drains.
+     * An item can be drawn under its own name unless a picture of that name exists and is
+     * rejected, regenerating or suppressed: drawing over it would leave the new picture with
+     * that status. Those fall back to the post's own wording, as before.
      */
-    private function loadLibrary(bool $dryRun): void
+    private function drawable(string $item): bool
     {
-        if ($this->library !== null) {
-            return;
-        }
-
-        if (! $dryRun) {
-            $this->embedMissing();
-        }
-
-        // Keys come from every active picture a post has used, embedded or not, so an exact-key
-        // match still works while the embedder is down. usage_count counts post attachments
-        // only, which leaves out job illustrations.
-        $this->keys = [];
-        $named = DB::table('ai_images')
-            ->where('status', 'active')
-            ->whereNotNull('externaluid')
-            ->where('usage_count', '>', 0)
-            ->orderByDesc('usage_count')
-            ->get(['id', 'name']);
-        foreach ($named as $r) {
-            // Most-used first, so a key shared by several pictures takes the best-known one.
-            $this->keys[ItemMatchKey::key($r->name)] ??= (int) $r->id;
-        }
-
-        $this->library = [];
-        $rows = DB::table('ai_images')
-            ->join('ai_images_embeddings', 'ai_images_embeddings.aiimageid', '=', 'ai_images.id')
-            ->where('ai_images.status', 'active')
-            ->whereNotNull('ai_images.externaluid')
-            ->orderByDesc('ai_images.usage_count')
-            ->get(['ai_images.id', 'ai_images.name', 'ai_images_embeddings.embedding']);
-
-        foreach ($rows as $r) {
-            $this->library[] = [
-                'id' => (int) $r->id,
-                'head' => ItemMatchKey::head($r->name),
-                // Kept packed: 28k unpacked vectors would be over 100MB of PHP floats.
-                'vec' => $r->embedding,
-            ];
-        }
+        return ! DB::table('ai_images')->where('name', $item)->where('status', '!=', 'active')->exists();
     }
 
-    private function embedMissing(): void
+    private function imageId(string $externalUid): ?int
     {
-        // Only pictures a post has used: job illustrations share ai_images, and a post for a
-        // "Driver" should not be offered the HGV driver job's picture.
-        $rows = DB::table('ai_images')
-            ->leftJoin('ai_images_embeddings', 'ai_images_embeddings.aiimageid', '=', 'ai_images.id')
-            ->whereNull('ai_images_embeddings.id')
-            ->where('ai_images.status', 'active')
-            ->whereNotNull('ai_images.externaluid')
-            ->whereExists(fn ($q) => $q->select(DB::raw(1))
-                ->from('messages_attachments')
-                ->whereColumn('messages_attachments.externaluid', 'ai_images.externaluid'))
-            ->orderByDesc('ai_images.id')
-            ->limit(self::EMBED_PER_RUN)
-            ->get(['ai_images.id', 'ai_images.name']);
-        if ($rows->isEmpty()) {
-            return;
-        }
+        $id = DB::table('ai_images')->where('externaluid', $externalUid)->value('id');
 
-        $texts = [];
-        foreach ($rows as $r) {
-            $texts[(string) $r->id] = $r->name;
-        }
-        $vectors = $this->embedder->embed($texts);
-        if ($vectors === false) {
-            Log::warning('AiImageMatcher: could not embed library names this run');
+        return $id ? (int) $id : null;
+    }
 
-            return;
-        }
-
-        $insert = [];
-        foreach ($vectors as $id => $vec) {
-            if (count($vec) === EmbeddingService::EMBEDDING_DIM) {
-                $insert[] = ['aiimageid' => (int) $id, 'embedding' => pack('g*', ...$vec)];
-            }
-        }
-        if ($insert) {
-            DB::table('ai_images_embeddings')->insertOrIgnore($insert);
+    private function alias(string $name, ?int $aiImageId, string $method): void
+    {
+        if ($aiImageId && $name !== '') {
+            DB::table('ai_image_aliases')->insertOrIgnore([
+                'name' => mb_substr($name, 0, 255), 'aiimageid' => $aiImageId, 'method' => $method,
+            ]);
         }
     }
 }

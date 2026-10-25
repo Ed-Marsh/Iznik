@@ -256,15 +256,16 @@ class MessageIllustrationsService
                 $candidates[] = ['msgid' => $msg->msgid, 'itemName' => $itemName, 'uid' => $image->externaluid ?? null, 'arrival' => $arrival];
             }
 
-            // A name with no picture of its own may still be a variant of one we have
-            // ("3 bags of cat litter", "Sofas", "Freazer"). Reusing that picture saves
-            // generating another. All of the pass's names go in one call, so the embedder
-            // starts once.
+            // A name with no picture of its own is usually an item we have drawn under other
+            // wording ("3 bags of cat litter" is cat litter). The matcher reuses that picture,
+            // or names the item to draw so the next variant finds it. All of the pass's names
+            // go in one request.
             $unpictured = array_column(array_filter($candidates, fn ($c) => ! $c['uid']), 'itemName');
-            $reuse = $unpictured ? $this->matcher->matchMany($unpictured, $dryRun) : [];
+            $match = $unpictured ? $this->matcher->matchMany($unpictured, $dryRun) : ['reuse' => [], 'items' => []];
 
             foreach ($candidates as $c) {
-                $c['uid'] ??= $reuse[$c['itemName']] ?? null;
+                $c['uid'] ??= $match['reuse'][$c['itemName']] ?? null;
+                $c['draw'] = $match['items'][$c['itemName']] ?? $c['itemName'];
 
                 if ($c['uid']) {
                     $cachedMessages[] = $c;
@@ -305,11 +306,14 @@ class MessageIllustrationsService
                     break;
                 }
 
+                // The picture is drawn from, and stored under, the item where there is one.
                 $batchItems = [];
+                $postName = [];
                 foreach ($newMessages as $msg) {
+                    $postName[$msg['msgid']] = $msg['itemName'];
                     $batchItems[] = [
-                        'name' => $msg['itemName'],
-                        'prompt' => $this->pollinations->buildMessagePrompt($msg['itemName']),
+                        'name' => $msg['draw'],
+                        'prompt' => $this->pollinations->buildMessagePrompt($msg['draw']),
                         'width' => 640,
                         'height' => 480,
                         'msgid' => $msg['msgid'],
@@ -357,6 +361,9 @@ class MessageIllustrationsService
                             'externalmods' => json_encode(['ai' => true]),
                             'contenttype' => 'image/jpeg',
                         ]);
+                        if (isset($postName[$msgid]) && $postName[$msgid] !== $itemName) {
+                            $this->matcher->recordGenerated($postName[$msgid], $itemName, $uid);
+                        }
                         $processed++;
                         Log::info("MessageIllustrations: created illustration for message {$msgid}: {$itemName}");
                     }

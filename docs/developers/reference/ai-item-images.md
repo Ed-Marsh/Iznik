@@ -4,83 +4,98 @@ owner: Freegle dev team
 covers:
   - iznik-batch/app/Services/MessageIllustrationsService.php
   - iznik-batch/app/Services/AiImageMatcherService.php
+  - iznik-batch/app/Services/ItemCleanerService.php
   - iznik-batch/app/Support/ItemMatchKey.php
-  - iznik-batch/resources/js/embed.mjs
+  - iznik-batch/app/Console/Commands/AI/BackfillAIImageItemsCommand.php
   - iznik-server-go/misc/illustration.go
 ---
 
 # AI item images
 
-A post with no photo gets a simple AI-drawn picture of its item. One picture serves every post
-with the same item name, so a picture is generated only for a name we have not seen.
+A post with no photo gets a simple AI-drawn picture of its item. Pictures are shared: a new one is
+drawn only for an item we have never drawn.
 
-> **A picture is chosen by item name, never by the post's description.** The description is
-> often about collection, not the item, and a picture fitted to one post would fit the next post
-> with that name worse.
+> **A picture belongs to an item, not to a post's wording.** Gemini says which item a new name
+> means ("Aluminium walking frame" is a "walking frame", "PUCHING WELCHIAR" a "wheelchair"), and
+> every wording of that item shares one picture. A new picture is drawn from the item, so the
+> next wording finds it too.
 >
-> **A name we have not seen may still reuse a picture.** Before generating, the batch looks for
-> a picture whose name is a variant of this one, and keeps any match as an alias. About half the
-> names that used to get a new picture now reuse one.
+> **This is what makes the rate fall.** Keyed by wording, the library grew by one-off names and
+> new pictures stayed at about 58% of new names. Keyed by item, the share falls every month (see
+> below).
 >
 > **A moderator removing a borrowed picture removes the match, not the picture.** The alias is
-> deleted and the picture gets no "Reject", because the picture was fine for its own name.
+> deleted and the picture gets no "Reject", because it was fine for its own item.
 
 ## Where the pieces are
 
 | Step | Code |
 |---|---|
 | Item name from a subject: no `OFFER:`/`OFFERED:`/`REQUESTED:` prefix, no location, no "please" | `MessageIllustrationsService::extractItemName`, `misc.IllustrationItemName` |
-| Picture for a post as it is written (compose) | `misc.GetIllustration`: exact name, then alias |
-| Pictures for posts that have none | `MessageIllustrationsService`, every minute |
-| Reuse a picture for a new name | `AiImageMatcherService::matchMany` |
+| Picture as a post is written (compose) | `misc.GetIllustration`: the exact name, then an alias |
+| Pictures for posts that have none, every minute | `MessageIllustrationsService` |
+| Which item a name means | `ItemCleanerService` (Gemini, fixed model `AI_IMAGE_CLEAN_MODEL`) |
+| Reuse or draw | `AiImageMatcherService` |
+| Item keys for pictures drawn before this | `ai:images:backfill-items`, every 30 minutes until done |
 | Moderator removes a picture | `recordAIDeletions` and `removeAIImageAlias` in `message/message.go` |
 
-Job illustrations share `ai_images` but never reach a post: the matcher only uses pictures that a
-post has used.
+`ai_image_aliases` holds two kinds of row. `item` rows point a post's wording at a picture, and the
+Go API reads them at compose time. `itemkey` rows point an item's key (`ItemMatchKey`: lower case,
+no punctuation, singular) at the picture drawn for that item.
 
-## How a new name finds a picture
+When a name has no picture, the batch asks the cleaner for its item, then:
 
-In order, stopping at the first that answers:
+- if the item has a picture, the post uses it and the wording becomes an alias;
+- if not, a picture is drawn from the item and stored under it, with aliases for both;
+- if the cleaner says there is no drawable item, or fails, or the item's own picture is rejected,
+  the picture is drawn from the post's wording, as before.
 
-1. **Alias.** `ai_image_aliases` holds names already matched.
-2. **Same key.** `ItemMatchKey::key` reduces a name to what its picture shows: lower case, no
-   punctuation, singular, and without quantities, colours, sizes, condition words or "bag of".
-   "3 bags of cat litter", "Cat Litter" and "used cat litter" share a key.
-3. **Nearest name by embedding.** Each library name is embedded (nomic-embed-text, 256 dimensions,
-   `search_query:` prefix, in `ai_images_embeddings`). The nearest name is used when:
-   - cosine is at least **0.85** and the two **head nouns agree**, or
-   - cosine is at least **0.92**, whatever the wording.
+Job illustrations share `ai_images` but are never offered to a post: the backfill only keys
+pictures a post has used.
 
-The head noun is the last word before the first "for", "with", "and" and similar. It stops
-"ladder for bunk beds" taking the bunk bed picture, and "paper shredder" taking "shredded paper".
-Heads that are a letter or two apart agree, so "Freazer" finds "Freezer", but a short word gets no
-slack, so "took box" does not find "books".
+## How it was measured
 
-Anything else is generated as before. If the embedder fails, nothing matches by embedding and the
-names are generated: a failure costs a picture, not a wrong one.
+Every post picture generated from December 2025 to 25 October 2026 (28,378 names, each the first
+time that name appeared) was replayed as if this had been in place from the start. Each name could
+only reuse pictures the new logic would already have drawn.
 
-## Why these thresholds
+| Month | New names | Would still be drawn | Share |
+|---|---|---|---|
+| Dec 2025 | 2,249 | 1,372 | 61% |
+| Jan 2026 | 2,793 | 1,120 | 40% |
+| May | 7,044 | 2,321 | 33% |
+| Jun | 2,784 | 771 | 28% |
+| Jul | 4,047 | 1,045 | 26% |
+| Aug | 3,644 | 826 | 23% |
+| Sep | 3,097 | 673 | 22% |
+| Oct | 2,716 | 569 | 21% |
 
-The matcher was replayed against every post picture generated from 1 August to 25 October 2026
-(9,457 names). Each name could only match pictures that existed before it. A sample of 440
-matches across the score bands was then judged blind: would the reused picture be acceptable
-on that post?
+"Would still be drawn" counts names the cleaner found no item in (about 2.5%), which are drawn
+from their wording as before. 28,378 pictures would have been 8,700.
 
-| Band | Judged acceptable | Wrong |
+Samples were judged blind: would this picture be acceptable on this post?
+
+| Case | Acceptable | Partial | Wrong |
+|---|---|---|---|
+| Reused, same item | 92% | 4 | 0 of 50 |
+| Reused, same key, different wording | 85% | 4 | 2 of 40 |
+| Drawn new, from the item | 88% | 6 | 1 of 60 |
+
+"Partial" is nearly always a post listing several things, where the picture shows the first.
+
+### What was tried and dropped
+
+| Approach | Share drawn in October | Why not |
 |---|---|---|
-| Same key | 100% | 0 of 60 |
-| Head agrees, cosine 0.92 and up | 98% | 0 of 60 |
-| Head agrees, 0.88 to 0.92 | 95% | 0 of 60 |
-| Head agrees, 0.85 to 0.88 | 88% | 1 of 60 |
-| Head agrees, 0.82 to 0.85 | 80% | 2 of 60 |
-| Any wording, 0.92 and up | 98% | 1 of 40 |
-| Any wording, 0.88 to 0.92 | 93% | 1 of 40 |
+| Exact wording (before) | 100% of new names | |
+| Rules on wording plus nearest name by embedding | 58%, flat from July | Library grows by one-off wordings |
+| Plus "a more specific version of a name we have" | 43%, flat | Same |
+| Draw from the last two words | 34% | 9% of matches wrong ("Pressure cooker" -> "cooker") |
+| Draw from the head noun | 10% | "Paint spray gun" -> "gun" |
+| Cleaner plus nearest item by embedding | 18% | 85% acceptable, for 3 points |
 
-The rest of the "acceptable" shortfall is "partial": the post lists several things and the
-picture shows one of them. With the thresholds above, 48.9% of those 9,457 names would have
-reused a picture, an estimated 96% of them acceptable and 0.4% wrong. Lowering the head
-threshold to 0.82 reuses 57% at 94% acceptable.
+The embedding step was the weakest band each time it was judged, so it is not used.
 
 The replay is not in the repository. Re-running it needs `ai_images` and post usage from
-production, the names embedded through the sidecar, then the same replay against a library that
-grows in date order.
+production, the cleaner run over every name, and the same replay against a library that grows in
+date order.

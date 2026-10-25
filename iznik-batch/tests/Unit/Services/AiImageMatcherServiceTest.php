@@ -3,194 +3,148 @@
 namespace Tests\Unit\Services;
 
 use App\Services\AiImageMatcherService;
-use App\Services\Embedding\EmbedderContract;
+use App\Services\ItemCleanerService;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class AiImageMatcherServiceTest extends TestCase
 {
-    /** @var array<string,list<float>> name => vector the fake embedder returns */
-    private array $vectors = [];
+    /** @var array<string,string> name => item the fake cleaner answers */
+    private array $items = [];
 
-    private int $embedCalls = 0;
+    private int $cleanCalls = 0;
 
     protected function setUp(): void
     {
         parent::setUp();
         DB::table('ai_image_aliases')->delete();
-        DB::table('ai_images_embeddings')->delete();
-        DB::table('messages_attachments')->delete();
         DB::table('ai_images')->delete();
     }
 
-    private function matcher(bool $fail = false): AiImageMatcherService
+    private function matcher(): AiImageMatcherService
     {
         $test = $this;
 
-        return new AiImageMatcherService(new class($test, $fail) implements EmbedderContract
+        return new AiImageMatcherService(new class($test) extends ItemCleanerService
         {
-            public function __construct(private $test, private bool $fail) {}
+            public function __construct(private $test) {}
 
-            public function embed(array $texts): array|false
+            public function clean(array $names): array
             {
-                return $this->test->fakeEmbed($texts, $this->fail);
+                return $this->test->fakeClean($names);
             }
         });
     }
 
-    public function fakeEmbed(array $texts, bool $fail): array|false
+    public function fakeClean(array $names): array
     {
-        $this->embedCalls++;
-        if ($fail) {
-            return false;
-        }
-        $out = [];
-        foreach ($texts as $id => $text) {
-            if (isset($this->vectors[$text])) {
-                $out[$id] = $this->vectors[$text];
-            }
+        if ($names) {
+            $this->cleanCalls++;
         }
 
-        return $out;
+        return array_intersect_key($this->items, array_flip($names));
     }
 
-    /** A unit vector whose cosine with axis(0) is $cos. */
-    private function vec(float $cos, int $axis = 1): array
+    private function picture(string $name, string $status = 'active', int $usage = 1): int
     {
-        $v = array_fill(0, 256, 0.0);
-        $v[0] = $cos;
-        $v[$axis] = sqrt(max(0.0, 1 - $cos * $cos));
-
-        return $v;
-    }
-
-    /** An active picture that a post has used, with its name's vector. */
-    private function picture(string $name, array $vec, int $usage = 1): int
-    {
-        $uid = 'freegletusd-'.md5($name);
-        $id = DB::table('ai_images')->insertGetId([
-            'name' => $name, 'externaluid' => $uid, 'status' => 'active', 'usage_count' => $usage,
+        return DB::table('ai_images')->insertGetId([
+            'name' => $name, 'externaluid' => 'freegletusd-'.md5($name), 'status' => $status, 'usage_count' => $usage,
         ]);
-        $msgid = $this->createTestMessage($this->createTestUser(), $this->createTestGroup())->id;
-        DB::table('messages_attachments')->insert([
-            'msgid' => $msgid, 'externaluid' => $uid, 'externalmods' => json_encode(['ai' => true]), 'contenttype' => 'image/jpeg',
-        ]);
-        $this->vectors[$name] = $vec;
-
-        return $id;
     }
 
-    public function test_a_variant_of_an_existing_name_reuses_its_picture_and_is_remembered(): void
+    public function test_a_variant_reuses_the_picture_of_its_item_and_is_remembered(): void
     {
-        $id = $this->picture('Cat litter', $this->vec(1.0));
+        $id = $this->picture('Walking frame');
+        $this->items['Aluminium walking frame'] = 'walking frame';
 
-        $found = $this->matcher()->matchMany(['3 bags of cat litter']);
+        $m = $this->matcher()->matchMany(['Aluminium walking frame']);
 
-        $this->assertSame(['3 bags of cat litter' => 'freegletusd-'.md5('Cat litter')], $found);
-        $this->assertDatabaseHas('ai_image_aliases', ['name' => '3 bags of cat litter', 'aiimageid' => $id, 'method' => 'key']);
+        $this->assertSame(['Aluminium walking frame' => 'freegletusd-'.md5('Walking frame')], $m['reuse']);
+        $this->assertSame([], $m['items']);
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'Aluminium walking frame', 'aiimageid' => $id, 'method' => 'item']);
     }
 
-    public function test_a_close_name_with_the_same_thing_reuses_the_picture(): void
+    public function test_an_item_is_found_through_its_key(): void
     {
-        $id = $this->picture('Sofa bed', $this->vec(1.0));
-        $this->vectors['Sofa bed that folds'] = $this->vec(0.87);
+        $id = $this->picture('Some knitting needles I had');
+        DB::table('ai_image_aliases')->insert(['name' => 'knitting needle', 'aiimageid' => $id, 'method' => 'itemkey']);
+        $this->items['Knitting needles any size'] = 'knitting needles';
 
-        $found = $this->matcher()->matchMany(['Sofa bed that folds']);
+        $m = $this->matcher()->matchMany(['Knitting needles any size']);
 
-        $this->assertArrayHasKey('Sofa bed that folds', $found);
-        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'Sofa bed that folds', 'aiimageid' => $id, 'method' => 'embedding']);
+        $this->assertArrayHasKey('Knitting needles any size', $m['reuse']);
     }
 
-    public function test_a_close_name_for_a_different_thing_is_generated_instead(): void
+    public function test_an_item_never_drawn_is_named_for_drawing(): void
     {
-        // Close in meaning, but a shredder is not shredded paper.
-        $this->picture('Shredded paper', $this->vec(1.0));
-        $this->vectors['Paper shredder'] = $this->vec(0.9);
+        $this->items['PUCHING WELCHIAR'] = 'wheelchair';
 
-        $this->assertSame([], $this->matcher()->matchMany(['Paper shredder']));
-        $this->assertDatabaseCount('ai_image_aliases', 0);
+        $m = $this->matcher()->matchMany(['PUCHING WELCHIAR']);
+
+        $this->assertSame([], $m['reuse']);
+        $this->assertSame(['PUCHING WELCHIAR' => 'wheelchair'], $m['items']);
     }
 
-    public function test_a_very_close_name_matches_whatever_its_wording(): void
+    public function test_a_name_with_no_item_is_left_to_be_drawn_as_written(): void
     {
-        $this->picture('Laptop', $this->vec(1.0));
-        $this->vectors['Lap top or computer'] = $this->vec(0.95);
+        $this->items['Hello can anyone help'] = 'none';
 
-        $this->assertArrayHasKey('Lap top or computer', $this->matcher()->matchMany(['Lap top or computer']));
+        $this->assertSame(['reuse' => [], 'items' => []], $this->matcher()->matchMany(['Hello can anyone help']));
     }
 
-    public function test_a_distant_name_is_generated_instead(): void
+    public function test_an_item_whose_picture_is_not_active_is_neither_reused_nor_drawn_over(): void
     {
-        $this->picture('Sofa', $this->vec(1.0));
-        $this->vectors['Sofa cushions'] = $this->vec(0.7);
+        $this->picture('wheelchair', 'rejected');
+        $this->items['Wheel chair'] = 'wheelchair';
 
-        $this->assertSame([], $this->matcher()->matchMany(['Sofa cushions']));
+        $this->assertSame(['reuse' => [], 'items' => []], $this->matcher()->matchMany(['Wheel chair']));
     }
 
-    public function test_an_alias_answers_without_embedding(): void
+    public function test_an_alias_answers_without_asking_the_cleaner(): void
     {
-        $id = $this->picture('Freezer', $this->vec(1.0));
-        DB::table('ai_image_aliases')->insert(['name' => 'Freazer', 'aiimageid' => $id, 'method' => 'embedding', 'score' => 0.9]);
+        $id = $this->picture('Freezer');
+        DB::table('ai_image_aliases')->insert(['name' => 'Freazer', 'aiimageid' => $id, 'method' => 'item']);
 
-        $found = $this->matcher()->matchMany(['freazer']);
+        $m = $this->matcher()->matchMany(['freazer']);
 
-        $this->assertSame(['freazer' => 'freegletusd-'.md5('Freezer')], $found);
-        $this->assertSame(0, $this->embedCalls);
+        $this->assertSame(['freazer' => 'freegletusd-'.md5('Freezer')], $m['reuse']);
+        $this->assertSame(0, $this->cleanCalls);
     }
 
-    public function test_a_picture_that_is_not_active_is_never_reused(): void
+    public function test_a_new_picture_is_found_by_its_item_and_by_the_post_wording(): void
     {
-        $id = $this->picture('Cat litter', $this->vec(1.0));
-        DB::table('ai_images')->where('id', $id)->update(['status' => 'rejected']);
-        DB::table('ai_image_aliases')->insert(['name' => 'Kitty litter', 'aiimageid' => $id, 'method' => 'embedding']);
+        $this->picture('wheelchair');
 
-        $this->assertSame([], $this->matcher()->matchMany(['Kitty litter', 'Cat litters']));
+        $this->matcher()->recordGenerated('PUCHING WELCHIAR', 'wheelchair', 'freegletusd-'.md5('wheelchair'));
+
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'wheelchair', 'method' => 'itemkey']);
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'PUCHING WELCHIAR', 'method' => 'item']);
+
+        $this->items['Folding wheelchairs'] = 'wheelchairs';
+        $this->assertArrayHasKey('Folding wheelchairs', $this->matcher()->matchMany(['Folding wheelchairs'])['reuse']);
     }
 
-    public function test_a_job_illustration_is_not_offered_to_a_post(): void
+    public function test_backfill_keys_the_most_used_picture_first(): void
     {
-        // Job pictures share ai_images but no post uses them, so they never join the library.
-        DB::table('ai_images')->insert(['name' => 'Delivery Driver', 'externaluid' => 'freegletusd-job', 'status' => 'active']);
-        $this->vectors['Delivery Driver'] = $this->vec(1.0);
-        $this->vectors['Delivery driver'] = $this->vec(1.0);
+        $quiet = $this->picture('Sofa (spare)', 'active', 1);
+        $busy = $this->picture('Sofa', 'active', 50);
+        $this->items = ['Sofa (spare)' => 'sofa', 'Sofa' => 'sofa'];
 
-        $this->assertSame([], $this->matcher()->matchMany(['Delivery driver']));
-        $this->assertDatabaseCount('ai_images_embeddings', 0);
-    }
+        $this->assertSame(2, $this->matcher()->backfill(0, 100));
 
-    public function test_library_names_are_embedded_once(): void
-    {
-        $this->picture('Sofa', $this->vec(1.0));
-        $this->vectors['Settee'] = $this->vec(0.5);
-
-        $this->matcher()->matchMany(['Settee']);
-        $this->assertDatabaseCount('ai_images_embeddings', 1);
-
-        $calls = $this->embedCalls;
-        $this->matcher()->matchMany(['Settee']);
-        // Second run: the library is already embedded, so only the query is.
-        $this->assertSame($calls + 1, $this->embedCalls);
-    }
-
-    public function test_when_embedding_fails_nothing_matches_and_nothing_is_stored(): void
-    {
-        $this->picture('Sofa', $this->vec(1.0));
-
-        $this->assertSame([], $this->matcher(fail: true)->matchMany(['Settee']));
-        $this->assertDatabaseCount('ai_image_aliases', 0);
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'sofa', 'aiimageid' => $busy, 'method' => 'itemkey']);
+        $this->assertDatabaseMissing('ai_image_aliases', ['aiimageid' => $quiet]);
+        $this->assertSame(0, $this->matcher()->backfill(2, 100));
     }
 
     public function test_a_dry_run_stores_nothing(): void
     {
-        $this->picture('Cat litter', $this->vec(1.0));
-        // Embedded already, as a dry run does not embed the library.
-        DB::table('ai_images_embeddings')->insert([
-            'aiimageid' => DB::table('ai_images')->value('id'), 'embedding' => pack('g*', ...$this->vec(1.0)),
-        ]);
+        $this->picture('Walking frame');
+        $this->items['Aluminium walking frame'] = 'walking frame';
 
-        $found = $this->matcher()->matchMany(['Cat litters'], dryRun: true);
+        $m = $this->matcher()->matchMany(['Aluminium walking frame'], dryRun: true);
 
-        $this->assertArrayHasKey('Cat litters', $found);
+        $this->assertArrayHasKey('Aluminium walking frame', $m['reuse']);
         $this->assertDatabaseCount('ai_image_aliases', 0);
     }
 }

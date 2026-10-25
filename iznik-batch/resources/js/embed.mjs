@@ -46,11 +46,8 @@ rl.on('close', async () => {
 });
 
 async function processBuffer(batch) {
-  // nomic-embed-text wants "search_document:" for a stored document and "search_query:" for
-  // something compared with them. Item names are compared with each other, so they are all
-  // embedded as queries, the way apiv2 embeds them (EMBED_PREFIX=search_query).
-  const prefix = process.env.EMBED_PREFIX || 'search_document';
-  const texts = batch.map(m => `${prefix}: ${m.text}`);
+  // nomic-embed-text uses "search_document:" prefix for document embeddings
+  const texts = batch.map(m => `search_document: ${m.text}`);
 
   const output = await extractor(texts, { pooling: 'mean', normalize: true });
   const dim = output.dims[1];

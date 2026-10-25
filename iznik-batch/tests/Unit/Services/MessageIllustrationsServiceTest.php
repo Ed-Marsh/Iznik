@@ -5,7 +5,7 @@ namespace Tests\Unit\Services;
 use App\Models\Message;
 use App\Models\MessageGroup;
 use App\Services\AiImageMatcherService;
-use App\Services\Embedding\EmbedderContract;
+use App\Services\ItemCleanerService;
 use App\Services\MessageIllustrationsService;
 use App\Services\PollinationsService;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +13,9 @@ use Tests\TestCase;
 
 class MessageIllustrationsServiceTest extends TestCase
 {
+    /** @var array<string,string> name => item the fake cleaner answers; a name not here is not cleaned */
+    public array $items = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -22,15 +25,17 @@ class MessageIllustrationsServiceTest extends TestCase
         DB::table('messages_attachments')->delete();
         DB::table('messages_spatial')->delete();
         DB::table('ai_image_aliases')->delete();
-        DB::table('ai_images_embeddings')->delete();
         DB::table('ai_images')->delete();
 
-        // No embedding model in tests: names match on their key only.
-        $this->app->instance(AiImageMatcherService::class, new AiImageMatcherService(new class implements EmbedderContract
+        // No Gemini in tests: the cleaner answers from $this->items.
+        $test = $this;
+        $this->app->instance(AiImageMatcherService::class, new AiImageMatcherService(new class($test) extends ItemCleanerService
         {
-            public function embed(array $texts): array|false
+            public function __construct(private $test) {}
+
+            public function clean(array $names): array
             {
-                return [];
+                return array_intersect_key($this->test->items, array_flip($names));
             }
         }));
     }
@@ -684,6 +689,7 @@ class MessageIllustrationsServiceTest extends TestCase
             'externalmods' => json_encode(['ai' => true]), 'contenttype' => 'image/jpeg',
         ]);
         $message = $this->createMessageInSpatial('OFFER: 3 bags of cat litter (TestTown)');
+        $this->items['3 bags of cat litter'] = 'cat litter';
 
         $mock = $this->makeMockPollinations();
         $mock->expects($this->never())->method('fetchBatch');
@@ -693,7 +699,38 @@ class MessageIllustrationsServiceTest extends TestCase
             'freegletusd-litter',
             DB::table('messages_attachments')->where('msgid', $message->id)->value('externaluid')
         );
-        $this->assertDatabaseHas('ai_image_aliases', ['name' => '3 bags of cat litter', 'method' => 'key']);
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => '3 bags of cat litter', 'method' => 'item']);
+    }
+
+    public function test_a_new_item_is_drawn_from_the_item_so_the_next_variant_finds_it(): void
+    {
+        $first = $this->createMessageInSpatial('WANTED: PUCHING WELCHIAR (TestTown)');
+        $this->items['PUCHING WELCHIAR'] = 'wheelchair';
+
+        $mock = $this->createMock(PollinationsService::class);
+        $mock->method('shouldSkipItem')->willReturn(false);
+        $mock->method('buildMessagePrompt')->willReturnCallback(fn ($n) => "prompt for $n");
+        $mock->expects($this->once())->method('fetchBatch')
+            ->with($this->callback(fn ($items) => $items[0]['name'] === 'wheelchair' && $items[0]['prompt'] === 'prompt for wheelchair'))
+            ->willReturn(['results' => [['msgid' => $first->id, 'name' => 'wheelchair', 'data' => 'img', 'hash' => 'h']], 'failed' => []]);
+        $mock->method('uploadImageAndCache')->willReturnCallback(function ($name) {
+            DB::table('ai_images')->insert(['name' => $name, 'externaluid' => 'freegletusd-wheelchair', 'imagehash' => 'h']);
+
+            return 'freegletusd-wheelchair';
+        });
+        $this->makeService($mock)->processIllustrations();
+
+        $this->assertSame('freegletusd-wheelchair', DB::table('messages_attachments')->where('msgid', $first->id)->value('externaluid'));
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'PUCHING WELCHIAR', 'method' => 'item']);
+
+        // The next wording of the same item reuses it without drawing.
+        $second = $this->createMessageInSpatial('OFFER: Folding wheelchairs (TestTown)');
+        $this->items['Folding wheelchairs'] = 'wheelchairs';
+        $again = $this->makeMockPollinations();
+        $again->expects($this->never())->method('fetchBatch');
+        $this->makeService($again)->processIllustrations();
+
+        $this->assertSame('freegletusd-wheelchair', DB::table('messages_attachments')->where('msgid', $second->id)->value('externaluid'));
     }
 
     public function test_a_trash_nothing_prefix_is_not_part_of_the_name(): void

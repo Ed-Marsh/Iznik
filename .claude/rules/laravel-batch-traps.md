@@ -313,15 +313,6 @@ tick took its lock, left it held, and failed on its next lock in the same run in
 `mysql_write` (`config/cache.php`), which has the write host only. Anything else that writes a row and
 reads it straight back to decide what to do needs the write PDO too.
 
-## An embedding's prefix moves every similarity threshold
-
-`resources/js/embed.mjs` (the batch's `NodeEmbedder`) prefixes text with `search_document:` unless
-told otherwise; the embedding sidecar and apiv2's `EmbedQuery` use `search_query:`. Both are the
-same model, so mixed vectors still compare, and cosines come out plausible but shifted. A threshold
-tuned on one prefix then quietly lets through more, or less, than it was measured to. Name-to-name
-comparison (`AiImageMatcherService`) uses `new NodeEmbedder('search_query')` on both sides,
-because that is what its thresholds were benchmarked on.
-
 ## See also
 
 - `.claude/rules/go-api-traps.md` - the same class of silent wrong answer on the Go side.
