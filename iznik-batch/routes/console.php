@@ -502,6 +502,23 @@ Schedule::command('cookieyes:check')
     ->appendOutputTo(cronLog('cookieyes:check'))
     ->runInBackground();
 
+// Google housekeeping: Search Console sitemap/indexing problems and Google Ads (Ad Grants)
+// policy and compliance problems. Results in housekeeper_tasks, failures emailed to geeks.
+// Until the credentials are set up every run fails and says exactly what is missing.
+Schedule::command('google:search-console-check')
+    ->weeklyOn(1, '10:40')
+    ->when(fn () => config('freegle.google.search_console_enabled', true))
+    ->withoutOverlapping(60)
+    ->appendOutputTo(cronLog('google:search-console-check'))
+    ->runInBackground();
+
+Schedule::command('google:ads-check')
+    ->weeklyOn(1, '10:50')
+    ->when(fn () => config('freegle.google.ads_enabled', true))
+    ->withoutOverlapping(60)
+    ->appendOutputTo(cronLog('google:ads-check'))
+    ->runInBackground();
+
 // Moderator work notifications — tells mods about pending messages, events, etc.
 // Only runs 08:00–21:00; deduplicates against last sent summary.
 // V1: cron/mod_notifs.php (hourly)
@@ -574,6 +591,15 @@ Schedule::command('ux:rollup-daily')
     ->dailyAt('02:20')
     ->withoutOverlapping(120)
     ->appendOutputTo(cronLog('ux:rollup-daily'))
+    ->runInBackground();
+
+// Digest click-through by post position: roll the last 14 days (clicks keep arriving after a digest
+// goes out) into email_digest_positions_daily, which the ModTools SysAdmin chart sums. 05:35 UTC is
+// after the backup drain window (03:50 for 45 minutes) and after the morning digests have gone.
+Schedule::command('email:digest-positions-rollup')
+    ->dailyAt('05:35')
+    ->withoutOverlapping(120)
+    ->appendOutputTo(cronLog('email:digest-positions-rollup'))
     ->runInBackground();
 
 // Hourly: read every running UX experiment from Loki by arm, move traffic towards the arm that
@@ -1112,6 +1138,13 @@ Schedule::command('donations:correct-userids')
     ->appendOutputTo(cronLog('donations:correct-userids'))
     ->runInBackground();
 
+// "Don't ask me to donate" lasts a year: date old opt-outs, switch off lapsed ones.
+Schedule::command('donations:lapse-optouts')
+    ->dailyAt('03:15')
+    ->withoutOverlapping(60)
+    ->appendOutputTo(cronLog('donations:lapse-optouts'))
+    ->runInBackground();
+
 // User management: Yahoo Groups removal, inactive-user forget, GDPR grace-period
 // forget, and hard delete of fully forgotten users with no messages left.
 // V1: cron/users_retention.php (User::userRetention + User::processForgets).
@@ -1135,6 +1168,15 @@ Schedule::command('matches:notify')
     ->everyTenMinutes()
     ->withoutOverlapping(20)
     ->appendOutputTo(cronLog('matches:notify'))
+    ->runInBackground();
+
+// Remind members of open posts they marked "I'm interested" in a day ago and have not replied to: one email
+// per member, each mark named once. Hourly is plenty (the reminder is a day late by design); it is not a
+// fixed-time job, so BackupDrain only delays it.
+Schedule::command('messages:interested-chaseup')
+    ->hourlyAt(37)
+    ->withoutOverlapping(60)
+    ->appendOutputTo(cronLog('messages:interested-chaseup'))
     ->runInBackground();
 
 // Email spool processing - runs continuously in daemon mode via supervisor.
