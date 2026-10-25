@@ -13,6 +13,9 @@ class NodeEmbedder implements EmbedderContract
 {
     private const PROCESS_TIMEOUT = 600;
 
+    /** @param  string  $prefix  nomic task prefix: search_document for stored text, search_query to compare. */
+    public function __construct(private string $prefix = 'search_document') {}
+
     public function embed(array $texts): array|false
     {
         if (empty($texts)) {
@@ -25,7 +28,7 @@ class NodeEmbedder implements EmbedderContract
         }
 
         $scriptPath = base_path('resources/js/embed.mjs');
-        $process = new Process(['node', $scriptPath]);
+        $process = new Process(['node', $scriptPath], null, ['EMBED_PREFIX' => $this->prefix]);
         $process->setInput($input);
         $process->setTimeout(self::PROCESS_TIMEOUT);
         $process->run();

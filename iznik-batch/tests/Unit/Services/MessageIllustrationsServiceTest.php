@@ -4,6 +4,8 @@ namespace Tests\Unit\Services;
 
 use App\Models\Message;
 use App\Models\MessageGroup;
+use App\Services\AiImageMatcherService;
+use App\Services\Embedding\EmbedderContract;
 use App\Services\MessageIllustrationsService;
 use App\Services\PollinationsService;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +21,18 @@ class MessageIllustrationsServiceTest extends TestCase
         DB::table('messages_ai_declined')->delete();
         DB::table('messages_attachments')->delete();
         DB::table('messages_spatial')->delete();
+        DB::table('ai_image_aliases')->delete();
+        DB::table('ai_images_embeddings')->delete();
         DB::table('ai_images')->delete();
+
+        // No embedding model in tests: names match on their key only.
+        $this->app->instance(AiImageMatcherService::class, new AiImageMatcherService(new class implements EmbedderContract
+        {
+            public function embed(array $texts): array|false
+            {
+                return [];
+            }
+        }));
     }
 
     private function makeService(?object $mockPollinations = null): MessageIllustrationsService
@@ -658,5 +671,40 @@ class MessageIllustrationsServiceTest extends TestCase
             DB::table('messages_attachments')->where('id', $ids['freegletusd-ai-only'])->exists(),
             'an illustration with no competing photo must be left alone'
         );
+    }
+
+    public function test_a_variant_of_a_name_we_have_reuses_its_picture_instead_of_generating(): void
+    {
+        $earlier = $this->createMessageInSpatial('OFFER: Cat litter (TestTown)');
+        DB::table('ai_images')->insert([
+            'name' => 'Cat litter', 'externaluid' => 'freegletusd-litter', 'imagehash' => 'hashlitter', 'usage_count' => 1,
+        ]);
+        DB::table('messages_attachments')->insert([
+            'msgid' => $earlier->id, 'externaluid' => 'freegletusd-litter',
+            'externalmods' => json_encode(['ai' => true]), 'contenttype' => 'image/jpeg',
+        ]);
+        $message = $this->createMessageInSpatial('OFFER: 3 bags of cat litter (TestTown)');
+
+        $mock = $this->makeMockPollinations();
+        $mock->expects($this->never())->method('fetchBatch');
+        $this->makeService($mock)->processIllustrations();
+
+        $this->assertSame(
+            'freegletusd-litter',
+            DB::table('messages_attachments')->where('msgid', $message->id)->value('externaluid')
+        );
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => '3 bags of cat litter', 'method' => 'key']);
+    }
+
+    public function test_a_trash_nothing_prefix_is_not_part_of_the_name(): void
+    {
+        $message = $this->createMessageInSpatial('REQUESTED: Rice cooker (TestTown)');
+        DB::table('ai_images')->insert(['name' => 'Rice cooker', 'externaluid' => 'freegletusd-rice', 'imagehash' => 'hashrice']);
+
+        $mock = $this->makeMockPollinations();
+        $mock->expects($this->never())->method('fetchBatch');
+        $this->makeService($mock)->processIllustrations();
+
+        $this->assertSame('freegletusd-rice', DB::table('messages_attachments')->where('msgid', $message->id)->value('externaluid'));
     }
 }

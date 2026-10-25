@@ -76,6 +76,7 @@ Read these directly; the pages above link into them rather than copy them:
 | Electricals and reuse reporting | [./reference/electricals.md](./reference/electricals.md) |
 | Item desirability scoring | [./reference/item-desirability.md](./reference/item-desirability.md) |
 | Matched-posts email | [./reference/matched-posts-email.md](./reference/matched-posts-email.md) |
+| AI item images | [./reference/ai-item-images.md](./reference/ai-item-images.md) |
 | Getting a first reply in | [./reference/first-reply.md](./reference/first-reply.md) |
 | Unsubscribing from email (List-Unsubscribe) | [./reference/unsubscribe.md](./reference/unsubscribe.md) |
 | Mail deferrals and suppression | [./reference/mail-deferrals.md](./reference/mail-deferrals.md) |
