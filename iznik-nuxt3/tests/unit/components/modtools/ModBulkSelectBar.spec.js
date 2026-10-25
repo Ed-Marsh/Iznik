@@ -107,13 +107,40 @@ describe('ModBulkSelectBar', () => {
     expect(text).not.toMatch(/<|>/)
   })
 
-  it('leaves out a column no row has', () => {
+  it('always writes the same six columns, so copies line up when pasted together', () => {
     const w = mountBar()
     const text = w.vm.plainText([
       { id: 1, name: 'A', email: 'a@x.com' },
-      { id: 2, name: 'B', email: null },
+      { id: 2, name: 'B', email: null, reason: 'r', added: 'd', by: 'S' },
     ])
-    expect(text).toBe('1\tA\ta@x.com\n2\tB\t')
+    expect(text).toBe('1\tA\ta@x.com\t\t\t\n2\tB\t\tr\td\tS')
+  })
+
+  it('stops a name from becoming a spreadsheet formula', () => {
+    const w = mountBar()
+    const text = w.vm.plainText([
+      { id: 1, name: '=HYPERLINK("http://evil","click")', email: '+44 nope' },
+      { id: 2, name: '-minus', email: '@at' },
+    ])
+    const [a, b] = text.split('\n')
+    expect(a.split('\t')[1]).toBe('\'=HYPERLINK("http://evil","click")')
+    expect(a.split('\t')[2]).toBe("'+44 nope")
+    expect(b.split('\t')[1]).toBe("'-minus")
+    expect(b.split('\t')[2]).toBe("'@at")
+  })
+
+  it('can be told not to offer Copy at all', () => {
+    const w = mountBar({ copy: false })
+    expect(w.find('[data-test="bulk-copy"]').exists()).toBe(false)
+  })
+
+  it('says so when the clipboard refuses', async () => {
+    writeText.mockRejectedValueOnce(new Error('denied'))
+    const w = mountBar()
+    await w.find('[data-test="bulk-copy"]').trigger('click')
+    await w.vm.$nextTick()
+    await w.vm.$nextTick()
+    expect(w.find('[data-test="bulk-copy"]').text()).toContain('Copy failed')
   })
 
   it('says Copied for a moment after copying', async () => {

@@ -296,8 +296,11 @@ describe('spammer store bulk actions', () => {
       expect(result.failed[0].item.id).toBe(2)
       expect(result.failed[0].error.heldByOtherMod).toBe(true)
       expect(result.failed[0].error.message).toContain('Pat')
-      // The confirmed one left the list; the held one is refetched, not dropped.
+      // The confirmed one left the list; the held one stays for the page to
+      // refetch with its own search, which heldConflict asks it to do.
       expect(spammerStore.byId(1)).toBeNull()
+      expect(spammerStore.byId(2)).not.toBeNull()
+      expect(result.heldConflict).toBe(true)
     })
 
     it('skips items with no spam_users id rather than sending id=0', async () => {
@@ -311,38 +314,59 @@ describe('spammer store bulk actions', () => {
     })
   })
 
-  describe('addMany', () => {
-    it('POSTs each userid with the shared reason and collection', async () => {
-      const result = await spammerStore.addMany({
+  describe('reportMany', () => {
+    it('POSTs each userid as Pending Add with the shared reason and keeps the new ids', async () => {
+      mockAdd.mockImplementation(({ userid }) =>
+        Promise.resolve({ ret: 0, id: userid * 10 })
+      )
+      const result = await spammerStore.reportMany({
         userids: [5, 6],
         reason: 'Same name, 50 accounts',
-        collection: 'Spammer',
       })
 
       expect(mockAdd).toHaveBeenCalledTimes(2)
       expect(mockAdd).toHaveBeenCalledWith({
         userid: 5,
-        collection: 'Spammer',
-        reason: 'Same name, 50 accounts',
-      })
-      expect(mockAdd).toHaveBeenCalledWith({
-        userid: 6,
-        collection: 'Spammer',
+        collection: 'PendingAdd',
         reason: 'Same name, 50 accounts',
       })
       expect(result.done).toEqual([5, 6])
+      expect(result.skipped).toEqual([])
+      expect(result.values.get(5)).toBe(50)
       expect(result.failed).toHaveLength(0)
+    })
+
+    it('never adds directly as a confirmed spammer', async () => {
+      mockAdd.mockResolvedValue({ ret: 0, id: 1 })
+      await spammerStore.reportMany({ userids: [5], reason: 'r' })
+      for (const call of mockAdd.mock.calls) {
+        expect(call[0].collection).toBe('PendingAdd')
+      }
+    })
+
+    it('reports a member the server left alone as skipped, not done', async () => {
+      // id 0 is the server saying a spam_users row already exists.
+      mockAdd.mockImplementation(({ userid }) =>
+        Promise.resolve({ ret: 0, id: userid === 6 ? 0 : 99 })
+      )
+      const result = await spammerStore.reportMany({
+        userids: [5, 6, 7],
+        reason: 'r',
+      })
+      expect(result.done).toEqual([5, 7])
+      expect(result.skipped).toEqual([6])
     })
 
     it('returns the userids that failed so the moderator can retry them', async () => {
       mockAdd.mockImplementation(({ userid }) =>
-        userid === 6 ? Promise.reject(new Error('boom')) : Promise.resolve({})
+        userid === 6
+          ? Promise.reject(new Error('boom'))
+          : Promise.resolve({ ret: 0, id: 1 })
       )
 
-      const result = await spammerStore.addMany({
+      const result = await spammerStore.reportMany({
         userids: [5, 6, 7],
         reason: 'r',
-        collection: 'PendingAdd',
       })
 
       expect(result.done).toEqual([5, 7])

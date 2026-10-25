@@ -7,13 +7,10 @@
     no-stacking
   >
     <template #default>
-      <p v-if="direct">
-        These {{ count }} members will go straight onto the spammer list, so
-        they are banned from every community.
-      </p>
-      <p v-else>
+      <p>
         These {{ count }} members will be reported to the Spam team, who will
-        check them before they are added to the list.
+        check them before they are added to the list. Anyone already reported or
+        already on the list is left as they are.
       </p>
       <p>
         Spammers must have
@@ -45,7 +42,7 @@
         data-test="bulk-spam-send"
         @click="send"
       >
-        {{ direct ? 'Add to spammer list' : 'Send report' }}
+        Send report
       </b-button>
     </template>
   </b-modal>
@@ -59,13 +56,6 @@ const props = defineProps({
     type: Number,
     required: true,
   },
-  // True when the moderator has Spam admin and the members are added as
-  // confirmed spammers, false when they are reported for the team to check.
-  direct: {
-    type: Boolean,
-    required: false,
-    default: false,
-  },
 })
 
 const emit = defineEmits(['confirm'])
@@ -74,11 +64,7 @@ const { modal, hide } = useOurModal()
 
 const reason = ref(null)
 
-const title = computed(() =>
-  props.direct
-    ? `Add ${props.count} to spammer list`
-    : `Report ${props.count} as spammers`
-)
+const title = computed(() => `Report ${props.count} as spammers`)
 
 function send() {
   if (reason.value && reason.value.trim()) {

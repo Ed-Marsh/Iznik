@@ -45,20 +45,12 @@ describe('ModBulkSpammerReport', () => {
     mockHide.mockClear()
   })
 
-  it('titles itself as a report for a plain moderator', () => {
+  it('says it is a report to the Spam team, for everyone', () => {
     const w = mountModal()
     expect(w.find('.title').text()).toBe('Report 12 as spammers')
     expect(w.find('[data-test="bulk-spam-send"]').text()).toBe('Send report')
     expect(w.text()).toContain('reported to the Spam team')
-  })
-
-  it('titles itself as a direct add for a Spam admin', () => {
-    const w = mountModal({ direct: true })
-    expect(w.find('.title').text()).toBe('Add 12 to spammer list')
-    expect(w.find('[data-test="bulk-spam-send"]').text()).toBe(
-      'Add to spammer list'
-    )
-    expect(w.text()).toContain('straight onto the spammer list')
+    expect(w.text()).toContain('already on the list is left as they are')
   })
 
   it('will not send without a reason', async () => {

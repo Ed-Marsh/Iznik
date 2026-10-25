@@ -4,13 +4,12 @@ import { ref } from 'vue'
 import ModMembers from '~/modtools/components/ModMembers.vue'
 
 // The real component, with its list and stores mocked, to check the bulk
-// spammer action that sits above the member cards.
+// report action that sits above the member cards.
 
 const mockFilter = ref('0')
 const mockVisibleMembers = ref([])
-const mockSpamAdmin = ref(true)
-const mockAddMany = vi.fn()
-const mockUserList = {}
+const mockReportMany = vi.fn()
+let mockMemberList = {}
 
 vi.mock('~/composables/useModMembers', () => ({
   setupModMembers: () => ({
@@ -19,16 +18,20 @@ vi.mock('~/composables/useModMembers', () => ({
   }),
 }))
 
-vi.mock('~/composables/useModMe', () => ({
-  useModMe: () => ({ hasPermissionSpamAdmin: mockSpamAdmin }),
-}))
-
 vi.mock('~/stores/spammer', () => ({
-  useSpammerStore: () => ({ addMany: mockAddMany }),
+  useSpammerStore: () => ({ reportMany: mockReportMany }),
 }))
 
-vi.mock('~/stores/user', () => ({
-  useUserStore: () => ({ list: mockUserList }),
+vi.mock('~/stores/member', () => ({
+  useMemberStore: () => ({
+    get list() {
+      return mockMemberList
+    },
+  }),
+}))
+
+vi.mock('~/composables/useMe', () => ({
+  useMe: () => ({ me: ref({ id: 66 }) }),
 }))
 
 const stubs = {
@@ -37,13 +40,14 @@ const stubs = {
     props: ['membershipid'],
   },
   ModBulkSelectBar: {
-    template: '<div class="bulk-bar-stub" :data-count="count"><slot /></div>',
-    props: ['count', 'limit', 'shownIds', 'copyRows', 'busy'],
+    template:
+      '<div class="bulk-bar-stub" :data-count="count" :data-copy="String(copy)"><slot /></div>',
+    props: ['count', 'limit', 'shownIds', 'copyRows', 'busy', 'copy'],
     emits: ['select-all', 'clear'],
   },
   ModBulkSpammerReport: {
-    template: '<div class="bulk-modal-stub" :data-direct="direct" />',
-    props: ['count', 'direct'],
+    template: '<div class="bulk-modal-stub" :data-count="count" />',
+    props: ['count'],
     emits: ['confirm', 'hidden'],
   },
   NoticeMessage: {
@@ -65,51 +69,46 @@ const stubs = {
   'v-icon': { template: '<i />', props: ['icon'] },
 }
 
-const members = [
-  {
-    id: 11,
-    userid: 1,
-    groupid: 100,
-    displayname: 'Eric Jones',
-    email: 'eric1@example.com',
-    added: '2026-10-20T09:00:00Z',
-  },
-  // The same person on a second community: one checkbox state, one row to copy.
-  {
-    id: 12,
-    userid: 1,
-    groupid: 101,
-    displayname: 'Eric Jones',
-    email: 'eric1@example.com',
-    added: '2026-10-21T09:00:00Z',
-  },
-  {
-    id: 13,
-    userid: 2,
-    groupid: 100,
-    displayname: 'Eric Jones',
-    email: 'eric2@example.com',
-    joined: '2026-10-22T09:00:00Z',
-  },
-]
+function members() {
+  return [
+    { id: 11, userid: 1, groupid: 100, displayname: 'Eric Jones' },
+    // The same person on a second community: one checkbox state.
+    { id: 12, userid: 1, groupid: 101, displayname: 'Eric Jones' },
+    { id: 13, userid: 2, groupid: 100, displayname: 'Eric Jones' },
+  ]
+}
 
 function mountIt() {
   return mount(ModMembers, { global: { stubs } })
 }
 
-describe('ModMembers bulk spammer action', () => {
+function okResult(done, skipped = []) {
+  return {
+    done,
+    skipped,
+    failed: [],
+    values: new Map(done.map((u, i) => [u, 500 + i])),
+  }
+}
+
+describe('ModMembers bulk report', () => {
   beforeEach(() => {
     mockFilter.value = '0'
-    mockVisibleMembers.value = members
-    mockSpamAdmin.value = true
-    mockAddMany.mockReset()
-    mockAddMany.mockResolvedValue({ done: [], failed: [] })
+    mockVisibleMembers.value = members()
+    mockMemberList = Object.fromEntries(members().map((m) => [m.id, m]))
+    mockReportMany.mockReset()
+    mockReportMany.mockResolvedValue(okResult([]))
   })
 
   it('shows no bar with nothing listed', () => {
     mockVisibleMembers.value = []
     const w = mountIt()
     expect(w.find('.bulk-bar-stub').exists()).toBe(false)
+  })
+
+  it('offers no Copy: moderators do not take member lists away', () => {
+    const w = mountIt()
+    expect(w.find('.bulk-bar-stub').attributes('data-copy')).toBe('false')
   })
 
   it('keys selection by person, so one tick covers both memberships', async () => {
@@ -122,28 +121,35 @@ describe('ModMembers bulk spammer action', () => {
     boxes.forEach((b) => expect(b.element.checked).toBe(true))
   })
 
-  it('labels the action as a direct add for a Spam admin and a report otherwise', async () => {
+  it('drops a selection when the list is replaced under it', async () => {
     const w = mountIt()
-    expect(w.find('[data-test="bulk-spam"]').text()).toContain(
-      'Add 0 to spammer list'
-    )
-    mockSpamAdmin.value = false
+    w.vm.bulk.selectAll([1, 2])
+    expect(w.vm.bulk.count.value).toBe(2)
+    // A new search: a different list, person 2 still in it.
+    mockVisibleMembers.value = [
+      { id: 21, userid: 2, groupid: 100, displayname: 'Eric Jones' },
+      { id: 22, userid: 3, groupid: 100, displayname: 'Eric Jones' },
+    ]
     await w.vm.$nextTick()
-    expect(w.find('[data-test="bulk-spam"]').text()).toContain(
-      'Report 0 as spammers'
-    )
+    expect(w.vm.bulk.isSelected(1)).toBe(false)
+    expect(w.vm.bulk.isSelected(2)).toBe(true)
+    // An empty list clears it entirely.
+    mockVisibleMembers.value = []
+    await w.vm.$nextTick()
+    expect(w.vm.bulk.count.value).toBe(0)
   })
 
-  it('opens the reason modal and adds every selected person with that reason', async () => {
+  it('always reports to the Spam team, never adds directly', async () => {
     const w = mountIt()
-    mockAddMany.mockResolvedValue({ done: [1, 2], failed: [] })
+    mockReportMany.mockResolvedValue(okResult([1, 2]))
     w.vm.bulk.selectAll([1, 2])
     await w.vm.$nextTick()
+    expect(w.find('[data-test="bulk-spam"]').text()).toContain(
+      'Report 2 as spammers'
+    )
     await w.find('[data-test="bulk-spam"]').trigger('click')
     await w.vm.$nextTick()
-    const modal = w.find('.bulk-modal-stub')
-    expect(modal.exists()).toBe(true)
-    expect(modal.attributes('data-direct')).toBe('true')
+    expect(w.find('.bulk-modal-stub').attributes('data-count')).toBe('2')
 
     w.findComponent('.bulk-modal-stub').vm.$emit(
       'confirm',
@@ -151,72 +157,89 @@ describe('ModMembers bulk spammer action', () => {
     )
     await flushPromises()
 
-    expect(mockAddMany).toHaveBeenCalledWith({
+    expect(mockReportMany).toHaveBeenCalledWith({
       userids: [1, 2],
       reason: 'Same name, many accounts',
-      collection: 'Spammer',
     })
-    expect(w.vm.bulkResult).toEqual({ direct: true, done: 2, failed: [] })
     expect(w.find('[data-test="bulk-result"]').text()).toContain(
-      'Added 2 to the spammer list'
+      'Reported 2 to the Spam team'
     )
     expect(w.vm.bulk.count.value).toBe(0)
   })
 
-  it('reports as Pending Add for a moderator without Spam admin', async () => {
-    mockSpamAdmin.value = false
+  it('marks the reported people on their cards straight away', async () => {
     const w = mountIt()
-    mockAddMany.mockResolvedValue({ done: [2], failed: [] })
-    w.vm.bulk.toggle(2)
-    await w.vm.bulkSpam('Looks like a bot')
-    expect(mockAddMany).toHaveBeenCalledWith({
-      userids: [2],
-      reason: 'Looks like a bot',
+    mockReportMany.mockResolvedValue(okResult([1]))
+    w.vm.bulk.toggle(1)
+    await w.vm.bulkReport('Bot')
+    // Both memberships of person 1 now carry the Pending Add state the card reads.
+    expect(mockMemberList[11].spammer).toMatchObject({
+      id: 500,
       collection: 'PendingAdd',
+      reason: 'Bot',
+      byuserid: 66,
     })
-    expect(w.find('[data-test="bulk-result"]').text()).toContain(
-      'Reported 1 to the Spam team'
-    )
+    expect(mockMemberList[12].spammer.collection).toBe('PendingAdd')
+    expect(mockMemberList[13].spammer).toBeUndefined()
   })
 
-  it('names the people that could not be added', async () => {
+  it('says who was already reported or listed rather than counting them as reported', async () => {
     const w = mountIt()
-    mockAddMany.mockResolvedValue({
-      done: [1],
+    mockReportMany.mockResolvedValue(okResult([1], [2]))
+    w.vm.bulk.selectAll([1, 2])
+    await w.vm.bulkReport('r')
+    const text = w.find('[data-test="bulk-result"]').text()
+    expect(text).toContain('Reported 1 to the Spam team')
+    expect(text).toContain('1 already reported or on the spammer list')
+    expect(mockMemberList[13].spammer).toBeUndefined()
+  })
+
+  it('names the people that could not be reported', async () => {
+    const w = mountIt()
+    mockReportMany.mockResolvedValue({
+      ...okResult([1]),
       failed: [{ item: 2, error: new Error('Server error') }],
     })
     w.vm.bulk.selectAll([1, 2])
-    await w.vm.bulkSpam('r')
+    await w.vm.bulkReport('r')
     expect(w.vm.bulkResult.failed).toEqual([
       { userid: 2, name: 'Eric Jones', message: 'Server error' },
     ])
     expect(w.find('[data-test="bulk-result"]').text()).toContain('#2')
   })
 
-  it('copies the selected people, or everyone shown, as plain fields', async () => {
+  it('reports every selected person as failed when the whole call throws', async () => {
     const w = mountIt()
-    expect(w.vm.copyRows).toEqual([
-      {
-        id: 1,
-        name: 'Eric Jones',
-        email: 'eric1@example.com',
-        added: '2026-10-20',
-      },
-      {
-        id: 2,
-        name: 'Eric Jones',
-        email: 'eric2@example.com',
-        added: '2026-10-22',
-      },
-    ])
-    w.vm.bulk.toggle(2)
-    await w.vm.$nextTick()
-    expect(w.vm.copyRows.map((r) => r.id)).toEqual([2])
+    mockReportMany.mockRejectedValue(new Error('Network down'))
+    w.vm.bulk.selectAll([1, 2])
+    await w.vm.bulkReport('r')
+    expect(w.vm.bulkResult.failed.map((f) => f.userid)).toEqual([1, 2])
+    expect(w.vm.bulkResult.failed[0].message).toBe('Network down')
+    expect(w.vm.bulk.count.value).toBe(0)
   })
 
   it('does nothing when confirmed with nothing selected', async () => {
     const w = mountIt()
-    await w.vm.bulkSpam('r')
-    expect(mockAddMany).not.toHaveBeenCalled()
+    await w.vm.bulkReport('r')
+    expect(mockReportMany).not.toHaveBeenCalled()
+  })
+
+  it('will not tick a 51st person', async () => {
+    mockVisibleMembers.value = Array.from({ length: 52 }, (_, i) => ({
+      id: 100 + i,
+      userid: 1000 + i,
+      groupid: 100,
+      displayname: 'Eric Jones',
+    }))
+    const w = mountIt()
+    w.vm.bulk.selectAll(w.vm.shownUserIds)
+    await w.vm.$nextTick()
+    expect(w.vm.bulk.count.value).toBe(50)
+    expect(
+      w.find('[data-test="bulk-check-1051"]').attributes('disabled')
+    ).toBeDefined()
+    expect(
+      w.find('[data-test="bulk-check-1000"]').attributes('disabled')
+    ).toBeUndefined()
   })
 })

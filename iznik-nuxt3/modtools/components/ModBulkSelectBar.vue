@@ -26,6 +26,7 @@
       Clear
     </b-button>
     <b-button
+      v-if="copy"
       variant="secondary"
       size="sm"
       :disabled="busy || !copyRows.length"
@@ -33,9 +34,11 @@
       data-test="bulk-copy"
       @click="copyList"
     >
-      <v-icon v-if="!copied" icon="copy" />
-      <v-icon v-else icon="check" />
+      <v-icon v-if="copied" icon="check" />
+      <v-icon v-else-if="copyFailed" icon="exclamation-triangle" />
+      <v-icon v-else icon="copy" />
       <span v-if="copied">Copied</span>
+      <span v-else-if="copyFailed">Copy failed</span>
       <span v-else>Copy {{ count ? 'selected' : 'list' }}</span>
     </b-button>
     <slot />
@@ -44,8 +47,8 @@
 <script setup>
 import { ref, computed } from 'vue'
 
-// Columns in the order they are pasted. A column every row lacks is left out, so
-// a list of plain members has no empty reason column.
+// Columns in the order they are pasted, always all six, so that lists copied at
+// different times line up when pasted under each other.
 const COLUMNS = ['id', 'name', 'email', 'reason', 'added', 'by']
 
 const props = defineProps({
@@ -66,7 +69,16 @@ const props = defineProps({
   // nothing is selected. Each is { id, name, email, reason?, added?, by? }.
   copyRows: {
     type: Array,
-    required: true,
+    required: false,
+    default: () => [],
+  },
+  // Whether to offer Copy at all. The spammer list offers it, for the spam team's
+  // records. The members list does not: moderators do not take member lists away
+  // (.claude/rules/conventions.md, "Moderators do not export member data").
+  copy: {
+    type: Boolean,
+    required: false,
+    default: true,
   },
   busy: {
     type: Boolean,
@@ -78,6 +90,7 @@ const props = defineProps({
 defineEmits(['select-all', 'clear'])
 
 const copied = ref(false)
+const copyFailed = ref(false)
 
 const allShownSelected = computed(
   () => props.count >= props.limit || props.count >= props.shownIds.length
@@ -89,35 +102,41 @@ const copyTitle = computed(() =>
     : 'Copy everything shown as plain text, one per line'
 )
 
+// A field as it goes on the clipboard: on one line, and never something a
+// spreadsheet would run. A spammer chooses their own display name, and a name
+// beginning with =, +, - or @ is a formula once pasted into Excel or Sheets; a
+// leading apostrophe makes it text there and is invisible in a document.
+function cell(value) {
+  const text = String(value ?? '').replace(/[\t\r\n]+/g, ' ')
+  return /^[=+\-@]/.test(text) ? "'" + text : text
+}
+
 // One member per line, fields separated by tabs, so it pastes into a spreadsheet
 // as columns and into a document as readable lines. Nothing else comes with it.
 function plainText(rows) {
-  const columns = COLUMNS.filter((c) =>
-    rows.some((r) => r[c] !== undefined && r[c] !== null && r[c] !== '')
-  )
-
-  return rows
-    .map((r) =>
-      columns
-        .map((c) => String(r[c] ?? '').replace(/[\t\r\n]+/g, ' '))
-        .join('\t')
-    )
-    .join('\n')
+  return rows.map((r) => COLUMNS.map((c) => cell(r[c])).join('\t')).join('\n')
 }
 
 async function copyList() {
   const text = plainText(props.copyRows)
+  copyFailed.value = false
 
-  if (import.meta.client) {
-    if (process.env.IS_APP) {
-      window.cordova.plugins.clipboard.copy(text)
-    } else {
-      await navigator.clipboard.writeText(text)
+  try {
+    if (import.meta.client) {
+      if (process.env.IS_APP) {
+        window.cordova.plugins.clipboard.copy(text)
+      } else {
+        await navigator.clipboard.writeText(text)
+      }
     }
-  }
 
-  copied.value = true
-  setTimeout(() => (copied.value = false), 1500)
+    copied.value = true
+    setTimeout(() => (copied.value = false), 1500)
+  } catch (e) {
+    console.error('Copy to clipboard failed', e)
+    copyFailed.value = true
+    setTimeout(() => (copyFailed.value = false), 3000)
+  }
 }
 
 defineExpose({ plainText })

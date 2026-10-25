@@ -5,7 +5,7 @@
       :count="bulk.count.value"
       :limit="bulk.limit"
       :shown-ids="shownUserIds"
-      :copy-rows="copyRows"
+      :copy="false"
       :busy="bulkBusy"
       @select-all="bulk.selectAll"
       @clear="bulk.clear"
@@ -19,10 +19,7 @@
       >
         <v-icon v-if="bulkBusy" icon="sync" class="fa-spin" />
         <v-icon v-else icon="ban" />
-        <span v-if="hasPermissionSpamAdmin">
-          Add {{ bulk.count.value }} to spammer list
-        </span>
-        <span v-else> Report {{ bulk.count.value }} as spammers </span>
+        Report {{ bulk.count.value }} as spammers
       </b-button>
     </ModBulkSelectBar>
     <NoticeMessage
@@ -32,16 +29,14 @@
       data-test="bulk-result"
     >
       <div v-if="bulkResult.done">
-        <span v-if="bulkResult.direct">
-          Added {{ bulkResult.done }} to the spammer list.
-        </span>
-        <span v-else>
-          Reported {{ bulkResult.done }} to the Spam team for checking.
-        </span>
+        Reported {{ bulkResult.done }} to the Spam team for checking.
+      </div>
+      <div v-if="bulkResult.skipped">
+        {{ bulkResult.skipped }} already reported or on the spammer list, so
+        left as they were.
       </div>
       <div v-if="bulkResult.failed.length">
-        {{ bulkResult.failed.length }} could not be
-        {{ bulkResult.direct ? 'added' : 'reported' }}:
+        {{ bulkResult.failed.length }} could not be reported:
         <ul class="mb-0">
           <li v-for="f in bulkResult.failed" :key="'bulkfail-' + f.userid">
             #{{ f.userid }} {{ f.name }}: {{ f.message }}
@@ -56,7 +51,9 @@
     >
       <b-form-checkbox
         :model-value="bulk.isSelected(member.userid)"
-        :disabled="bulkBusy"
+        :disabled="
+          bulkBusy || (bulk.atLimit.value && !bulk.isSelected(member.userid))
+        "
         title="Select"
         class="mt-2 me-1 bulk-check"
         :data-test="'bulk-check-' + member.userid"
@@ -72,29 +69,31 @@
     <ModBulkSpammerReport
       v-if="showBulkSpam"
       :count="bulk.count.value"
-      :direct="hasPermissionSpamAdmin"
-      @confirm="bulkSpam"
+      @confirm="bulkReport"
       @hidden="showBulkSpam = false"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { setupModMembers } from '~/composables/useModMembers'
 import { useBulkSelect } from '~/modtools/composables/useBulkSelect'
-import { getPreferredEmail } from '~/modtools/composables/usePreferredEmail'
-import { useModMe } from '~/composables/useModMe'
 import { useSpammerStore } from '~/stores/spammer'
-import { useUserStore } from '~/stores/user'
+import { useMemberStore } from '~/stores/member'
+import { useMe } from '~/composables/useMe'
 
 const { filter, visibleMembers } = setupModMembers()
-const { hasPermissionSpamAdmin } = useModMe()
 const spammerStore = useSpammerStore()
-const userStore = useUserStore()
+const memberStore = useMemberStore()
+const { me } = useMe()
 
 // Bulk selection keyed by userid, not membership: a search across all communities
 // lists one row per membership, and picking a person once must pick them once.
+//
+// There is no Copy here. Moderators do not take member lists away
+// (.claude/rules/conventions.md); the spammer list has Copy, for the spam team's
+// records, once the people are on it.
 const bulk = useBulkSelect()
 const bulkBusy = ref(false)
 const bulkResult = ref(null)
@@ -104,48 +103,65 @@ const shownUserIds = computed(() => [
   ...new Set(visibleMembers.value.map((m) => m.userid)),
 ])
 
-function rowFor(userid) {
-  const member = visibleMembers.value.find((m) => m.userid === userid)
-  const user = userStore.list?.[userid]
-  const joined = member?.added || member?.joined
-
-  return {
-    id: userid,
-    name: user?.displayname || member?.displayname || member?.fullname || '',
-    email: member?.email || getPreferredEmail(user) || '',
-    added: joined ? String(joined).slice(0, 10) : '',
-  }
-}
-
-// The selected people, or everyone shown when nothing is selected, as plain
-// fields for the spam team's records.
-const copyRows = computed(() => {
-  const ids = bulk.count.value ? bulk.selected.value : shownUserIds.value
-  return ids.map(rowFor)
+// The list is replaced under us when the community, filter, order or search
+// changes, and this component stays mounted. A selection that outlived the list
+// would report people no longer on screen.
+watch(shownUserIds, (ids) => {
+  bulk.keepOnly(ids)
 })
 
-async function bulkSpam(reason) {
+function nameOf(userid) {
+  const member = visibleMembers.value.find((m) => m.userid === userid)
+  return member?.displayname || member?.fullname || ''
+}
+
+// Reporting goes to the Spam team as Pending Add for everyone, Spam admin
+// included: a Spam admin confirms them in one go on the spammer list. A direct add
+// would replace a safelisted, held or already reported row, and lose who first
+// reported them; Pending Add leaves an existing row alone.
+async function bulkReport(reason) {
   const userids = [...bulk.selected.value]
   if (!userids.length) return
 
-  const direct = Boolean(hasPermissionSpamAdmin.value)
   bulkBusy.value = true
   bulkResult.value = null
 
   try {
-    const result = await spammerStore.addMany({
-      userids,
+    const result = await spammerStore.reportMany({ userids, reason })
+
+    // Show it on the cards straight away: the member rows carry the spammer
+    // state the card reads, and nothing refetches them here.
+    const reported = {
+      collection: 'PendingAdd',
       reason,
-      collection: direct ? 'Spammer' : 'PendingAdd',
+      added: new Date().toISOString(),
+      byuserid: me.value?.id,
+      heldby: null,
+    }
+    Object.values(memberStore.list).forEach((row) => {
+      if (result.done.includes(row.userid)) {
+        row.spammer = { ...reported, id: result.values.get(row.userid) }
+      }
     })
 
     bulkResult.value = {
-      direct,
       done: result.done.length,
+      skipped: result.skipped.length,
       failed: result.failed.map((f) => ({
         userid: f.item,
-        name: rowFor(f.item).name,
+        name: nameOf(f.item),
         message: f.error?.message || 'Something went wrong',
+      })),
+    }
+  } catch (e) {
+    console.error('Bulk report failed', e)
+    bulkResult.value = {
+      done: 0,
+      skipped: 0,
+      failed: userids.map((userid) => ({
+        userid,
+        name: nameOf(userid),
+        message: e?.message || 'Something went wrong',
       })),
     }
   } finally {

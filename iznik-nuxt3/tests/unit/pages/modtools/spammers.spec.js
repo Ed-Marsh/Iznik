@@ -403,6 +403,49 @@ describe('spammers.vue page', () => {
       expect(wrapper.vm.bulk.count.value).toBe(0)
     })
 
+    it('fetches the list again, through its own loader, when a hold got in the way', async () => {
+      const wrapper = await mountPending(pending(2))
+      mockSpammerStore.confirmMany.mockResolvedValue({
+        done: [{ id: 1 }],
+        failed: [
+          {
+            item: { id: 2, userid: 1002, name: 'Eric Jones' },
+            error: { message: 'Pat is holding this.', heldByOtherMod: true },
+          },
+        ],
+        heldConflict: true,
+      })
+      const before = wrapper.vm.infiniteId
+      mockSpammerStore.clear.mockClear()
+      wrapper.vm.bulk.selectAll([1, 2])
+      await wrapper.vm.confirmSelected()
+      expect(mockSpammerStore.clear).toHaveBeenCalled()
+      expect(wrapper.vm.infiniteId).toBe(before + 1)
+      expect(wrapper.vm.bulkResult.done).toBe(1)
+    })
+
+    it('reports every row as failed when the whole call throws', async () => {
+      const wrapper = await mountPending(pending(2))
+      mockSpammerStore.confirmMany.mockRejectedValue(new Error('Network down'))
+      wrapper.vm.bulk.selectAll([1, 2])
+      await wrapper.vm.confirmSelected()
+      expect(wrapper.vm.bulkResult.done).toBe(0)
+      expect(wrapper.vm.bulkResult.failed.map((f) => f.id)).toEqual([1, 2])
+      expect(wrapper.vm.bulkResult.failed[0].message).toBe('Network down')
+    })
+
+    it('will not tick a 51st row', async () => {
+      const wrapper = await mountPending(pending(52))
+      wrapper.vm.bulk.selectAll(wrapper.vm.selectableIds)
+      await wrapper.vm.$nextTick()
+      expect(
+        wrapper.find('[data-test="bulk-check-52"]').attributes('disabled')
+      ).toBeDefined()
+      expect(
+        wrapper.find('[data-test="bulk-check-1"]').attributes('disabled')
+      ).toBeUndefined()
+    })
+
     it('does nothing when Confirm is pressed with nothing selected', async () => {
       const wrapper = await mountPending(pending(2))
       await wrapper.vm.confirmSelected()

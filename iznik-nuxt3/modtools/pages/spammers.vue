@@ -95,7 +95,11 @@
         >
           <b-form-checkbox
             :model-value="bulk.isSelected(spammer.id)"
-            :disabled="bulkBusy || !isSelectable(spammer)"
+            :disabled="
+              bulkBusy ||
+              !isSelectable(spammer) ||
+              (bulk.atLimit.value && !bulk.isSelected(spammer.id))
+            "
             :title="
               isSelectable(spammer)
                 ? 'Select'
@@ -252,6 +256,22 @@ async function confirmSelected() {
         userid: f.item.userid,
         name: f.item.name,
         message: f.error?.message || 'Something went wrong',
+      })),
+    }
+
+    if (result.heldConflict) {
+      // Somebody took a hold after we fetched. Fetch the list again, with the
+      // search we are showing, so the holder's name appears on the row.
+      spammerStore.clear()
+      infiniteId.value++
+    }
+  } catch (e) {
+    console.error('Bulk confirm failed', e)
+    bulkResult.value = {
+      done: 0,
+      failed: items.map((item) => ({
+        ...item,
+        message: e?.message || 'Something went wrong',
       })),
     }
   } finally {

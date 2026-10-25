@@ -286,7 +286,20 @@ test.describe('ModTools Spammer List', () => {
 
     const cards = page.locator('.member-card')
     await expect(cards.first()).toBeVisible({ timeout: timeouts.ui.appearance })
-    const shown = await cards.count()
+    // The list shows its rows one loader tick at a time; wait until the count
+    // has stopped moving before taking it.
+    let shown = await cards.count()
+    await expect
+      .poll(
+        async () => {
+          const now = await cards.count()
+          const same = now === shown
+          shown = now
+          return same
+        },
+        { timeout: timeouts.ui.appearance }
+      )
+      .toBe(true)
 
     // Nothing selected: the whole list is copied.
     const copy = page.locator('[data-test="bulk-copy"]')
@@ -299,11 +312,10 @@ test.describe('ModTools Spammer List', () => {
     const lines = text.split('\n')
     expect(lines).toHaveLength(shown)
     for (const line of lines) {
+      // Always the same six columns: id, name, email, reason, added, reported by.
       const fields = line.split('\t')
-      // id, name, email, reason, added, reported by
-      expect(fields.length).toBeGreaterThanOrEqual(5)
+      expect(fields).toHaveLength(6)
       expect(fields[0]).toMatch(/^\d+$/)
-      expect(fields[2]).toContain('@')
     }
     expect(text).not.toMatch(/<|>/)
 
