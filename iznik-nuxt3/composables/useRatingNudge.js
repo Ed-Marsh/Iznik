@@ -134,6 +134,11 @@ export async function considerRatingNudge({
 
   if (!people.length) return null
 
+  // Another modal got there first (the microvolunteering ask, a contact details prompt): two
+  // modals on arrival would be the experiment measuring itself against a mess. Treated as "could
+  // not show" in both arms, so no arm is read and the day is not used up.
+  if (anotherModalOpen()) return null
+
   const arm = useExperiment('rate-on-return') || 'control'
   recordShown()
 
@@ -143,6 +148,15 @@ export async function considerRatingNudge({
   }
 
   return arm
+}
+
+// Bootstrap puts modal-open on the body while any modal is showing.
+function anotherModalOpen() {
+  try {
+    return document.body.classList.contains('modal-open')
+  } catch (e) {
+    return false
+  }
 }
 
 export function removeFromNudge(userid) {

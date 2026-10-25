@@ -210,6 +210,19 @@ describe('useRatingNudge', () => {
       expect(experiment.calls).toEqual([])
     })
 
+    it('stands aside when another modal is already open, reading no arm', async () => {
+      document.body.classList.add('modal-open')
+      try {
+        const c = ctx()
+        expect(await considerRatingNudge(c)).toBe(null)
+        expect(c.fetchUnrated).toHaveBeenCalledTimes(1)
+        expect(experiment.calls).toEqual([])
+        expect(shownRecently()).toBe(false)
+      } finally {
+        document.body.classList.remove('modal-open')
+      }
+    })
+
     it('a failed fetch is nothing to ask', async () => {
       const c = ctx({
         fetchUnrated: vi.fn().mockRejectedValue(new Error('no')),

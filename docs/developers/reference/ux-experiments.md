@@ -842,7 +842,9 @@ taker rated the poster after 5% (nobody asks: the thumbs are in the chat header,
   member who withdrew a rating is not asked again. Deleted users are left out.
 - **When it asks.** On arrival at a page, signed in, on the web, in arm `b`, when the page is not one of the
   interstitial's excluded pages (mid-flow, legal, `/chats` reached from an email) and the member has not been
-  asked in the last 24 hours on this browser (`freegle_rating_nudge_last`). `RatingNudge.vue`, mounted in
+  asked in the last 24 hours on this browser (`freegle_rating_nudge_last`), and no other modal is already open (the
+  microvolunteering ask, say: two modals on arrival would be the experiment measuring itself against a mess, so it
+  stands aside, in both arms, with no arm read and the day not used up). `RatingNudge.vue`, mounted in
   `LayoutCommon`, fetches the list once per page view; only when there is somebody to rate is the arm read, and
   the time of the visit recorded, **in both arms**, so a member with nobody to rate is counted in neither and
   control runs on the same 24-hour clock as the variant. The rules are in `composables/useRatingNudge.js`.

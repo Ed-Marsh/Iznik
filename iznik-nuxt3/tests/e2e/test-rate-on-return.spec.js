@@ -37,15 +37,23 @@ async function forceConfig(page, arm) {
     }
   }
 
+  // The init script runs on every document, so the day gate and the skips are cleared once per
+  // call (marked by `stamp`), not on every arrival: a later arrival must see the gate the first
+  // one set.
+  const stamp = String(Date.now())
   await page.addInitScript(
-    ({ config }) => {
+    ({ config, stamp }) => {
       try {
         Object.keys(localStorage)
           .filter((k) => k.startsWith('freegle_ux_arm:'))
           .forEach((k) => localStorage.removeItem(k))
-        localStorage.removeItem('freegle_rating_nudge_last')
-        localStorage.removeItem('freegle_rating_nudge_skipped')
-        sessionStorage.removeItem('freegle_rating_nudge_last')
+        const marker = 'freegle_rate_on_return_test_' + stamp
+        if (!localStorage.getItem(marker)) {
+          localStorage.setItem(marker, '1')
+          localStorage.removeItem('freegle_rating_nudge_last')
+          localStorage.removeItem('freegle_rating_nudge_skipped')
+          sessionStorage.removeItem('freegle_rating_nudge_last')
+        }
         localStorage.setItem(
           'freegle_ux_experiments',
           JSON.stringify({ fetchedAt: Date.now(), config })
@@ -54,7 +62,7 @@ async function forceConfig(page, arm) {
         // No storage: the route below still serves the config.
       }
     },
-    { config }
+    { config, stamp }
   )
 
   await page.unroute('**/config/ux_experiments*')
