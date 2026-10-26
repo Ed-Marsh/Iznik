@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { getDb, resetDbForTests, upsertDiscourseBug } from '../db/index.js'
+import { DISCOURSE_BASE } from '../discourse.js'
 import { renderStatusPostBody, fitStatusPost, MAX_STATUS_POST_CHARS, type StatusSection } from '../db/discourse-status.js'
 
 // Discourse refuses a post over 32000 characters. On 2026-10-26 the status post reached 33439 and
@@ -92,17 +93,30 @@ describe('the queue and the waiting list', () => {
     expect(raw).toContain('2 older reports with no activity for 14 days are not listed')
   })
 
-  it('counts a new post on the topic as activity, and shows the date', () => {
+  it("shows the date of the report's own last activity, not the topic's", () => {
     const db = getDb(':memory:')
-    bug(db, 30004, 'deferred', 45)
-    db.prepare(`INSERT INTO topic_cursor (topic_id, last_post_number, updated_at) VALUES (30004, 9, datetime('now', '-1 day'))`).run()
+    bug(db, 30004, 'deferred', 1)
+    bug(db, 30005, 'deferred', 45)
+    // Chatter about something else in a long thread does not keep an old report alive.
+    db.prepare(`INSERT INTO topic_cursor (topic_id, last_post_number, updated_at) VALUES (30005, 9, datetime('now'))`).run()
 
     const raw = renderStatusPostBody(db).raw
     const day = new Date(Date.now() - 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
 
     expect(raw).toContain('report 30004')
+    expect(raw).not.toContain('report 30005')
     expect(raw).toContain('| Last activity |')
     expect(raw).toContain(`| ${day} |`)
+  })
+
+  it('links the issue to the reported post', () => {
+    const db = getDb(':memory:')
+    bug(db, 30006, 'open', 1)
+
+    const raw = renderStatusPostBody(db).raw
+
+    expect(raw).toContain(`[report 30006](${DISCOURSE_BASE}/t/30006/1)`)
+    expect(raw).toContain('| @r30006 |')
   })
 
   it('leaves out a question already answered in its thread', () => {

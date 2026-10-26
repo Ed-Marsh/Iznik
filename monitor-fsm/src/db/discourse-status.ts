@@ -138,26 +138,22 @@ export function renderStatusPostBody(db: DB): StatusRenderResult {
     if (ds === 'pending_deploy') return ':hourglass: Deploying'
     return otherwise
   }
-  const who = (b: { reporter: string | null; topic: number; post: number }) =>
-    `[@${b.reporter ?? 'reporter'}](${DISCOURSE_BASE}/t/${b.topic}/${b.post})`
-  const excerptOf = (e: string | null) => escapeCell((e ?? '').slice(0, 160))
+  // The reporter in plain text, and the issue itself as the link to the reported post.
+  const who = (b: { reporter: string | null }) => `@${escapeCell(b.reporter ?? 'reporter')}`
+  const issue = (b: { excerpt: string | null; topic: number; post: number }) => {
+    const text = escapeCell((b.excerpt ?? '').slice(0, 160)).replace(/[[\]]/g, '') || '(no summary)'
+    return `[${text}](${DISCOURSE_BASE}/t/${b.topic}/${b.post})`
+  }
 
-  // Last activity on a report: the later of when it was last classified and when its topic last had a
-  // new post (topic_cursor). The queue and the waiting list leave out anything quiet for longer than
-  // STALE_AFTER_DAYS, so the list is what is live now rather than everything ever raised.
-  const topicActivity = new Map<number, string>()
-  for (const r of db.prepare('SELECT topic_id, updated_at FROM topic_cursor').all() as Array<{ topic_id: number; updated_at: string }>) {
-    topicActivity.set(r.topic_id, r.updated_at)
-  }
-  const lastActivity = (b: { topic: number; last_seen_at: string }) => {
-    const t = topicActivity.get(b.topic)
-    return t && t > b.last_seen_at ? t : b.last_seen_at
-  }
+  // Last activity on a report: when it was last classified, or last confirmed (last_seen_at). Not the
+  // topic's last post: in a long thread, posts about other things kept old reports looking live
+  // (10226/12). The queue and the waiting list leave out anything quiet for longer than STALE_AFTER_DAYS.
+  const lastActivity = (b: { last_seen_at: string }) => b.last_seen_at
   const cutoff = new Date(Date.now() - STALE_AFTER_DAYS * 86400000).toISOString().replace('T', ' ').slice(0, 19)
-  const fresh = <T extends { topic: number; last_seen_at: string }>(rows: T[]) => rows.filter(b => lastActivity(b) >= cutoff)
-  const byActivity = <T extends { topic: number; last_seen_at: string }>(rows: T[]) =>
+  const fresh = <T extends { last_seen_at: string }>(rows: T[]) => rows.filter(b => lastActivity(b) >= cutoff)
+  const byActivity = <T extends { last_seen_at: string }>(rows: T[]) =>
     [...rows].sort((x, y) => lastActivity(y).localeCompare(lastActivity(x)))
-  const when = (b: { topic: number; last_seen_at: string }) => formatDay(lastActivity(b))
+  const when = (b: { last_seen_at: string }) => formatDay(lastActivity(b))
 
   const inProgress = open.filter(b => b.state === 'fix-queued' && b.pr_number)
   const queuedAll = open.filter(b => ['open', 'investigating'].includes(b.state))
@@ -174,25 +170,25 @@ export function renderStatusPostBody(db: DB): StatusRenderResult {
     {
       title: 'Bugs being fixed',
       header: ['| Area | Reporter | Issue | PR | Status |', '|---|---|---|---|---|'],
-      rows: inProgress.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${prLink(b.pr_number)} | ${liveOf(b.pr_number, ':hammer_and_wrench: In progress')} |`),
+      rows: inProgress.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${issue(b)} | ${prLink(b.pr_number)} | ${liveOf(b.pr_number, ':hammer_and_wrench: In progress')} |`),
       dropOrder: 3,
     },
     {
       title: 'In our queue',
       header: ['| Area | Reporter | Issue | Last activity |', '|---|---|---|---|'],
-      rows: queued.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${when(b)} |`),
+      rows: queued.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${issue(b)} | ${when(b)} |`),
       dropOrder: 1,
     },
     {
       title: 'Fixed in the last 7 days',
       header: ['| Area | Reporter | Issue | PR | Live? |', '|---|---|---|---|---|'],
-      rows: recentFixed.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${prLink(b.pr_number)} | ${b.pr_number ? liveOf(b.pr_number, ':hammer_and_wrench: Pending') : ''} |`),
+      rows: recentFixed.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${issue(b)} | ${prLink(b.pr_number)} | ${b.pr_number ? liveOf(b.pr_number, ':hammer_and_wrench: Pending') : ''} |`),
       dropOrder: 2,
     },
     {
       title: 'Waiting on more information',
       header: ['| Area | Reporter | Issue | What we\'re waiting for | Last activity |', '|---|---|---|---|---|'],
-      rows: deferred.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${escapeCell(b.reason ?? '—')} | ${when(b)} |`),
+      rows: deferred.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${issue(b)} | ${escapeCell(b.reason ?? '—')} | ${when(b)} |`),
       dropOrder: 0,
     },
   ]
