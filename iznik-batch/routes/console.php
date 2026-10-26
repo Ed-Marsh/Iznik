@@ -1741,6 +1741,23 @@ Schedule::command('ai:usage-counts:update --full')
     ->appendOutputTo(cronLog('ai:usage-counts:update-full'))
     ->runInBackground();
 
+// Gives existing AI item pictures their item key, 500 names a run, most-used first. About 30k
+// names, so it is through in a day; after that each run is one count.
+Schedule::command('ai:images:backfill-items')
+    ->everyThirtyMinutes()
+    ->withoutOverlapping(30)
+    ->appendOutputTo(cronLog('ai:images:backfill-items'))
+    ->runInBackground();
+
+// The single item each new or live post is about, for pictures, matched posts and search. New
+// posts get theirs within the minute, ahead of the illustrations job's next pass; live posts from
+// before this get theirs 1,000 a run.
+Schedule::command('messages:clean-items')
+    ->everyMinute()
+    ->withoutOverlapping(10)
+    ->appendOutputTo(cronLog('messages:clean-items'))
+    ->runInBackground();
+
 
 // =============================================================================
 // GIFT AID
