@@ -4486,6 +4486,21 @@ type getSupportAIRunParams struct {
 //	200: successResponse
 //	404: errorResponse
 
+// swagger:route POST /discourse/relink sso relinkDiscourse
+// Re-link a moderator's Discourse account after an account merge
+//
+// Support or Admin. Moves the Discourse account linked to an account merged into userid onto
+// userid, then updates its email and name. Merges and Discourse sign-in do this by themselves;
+// this is for merges from before they did.
+//
+// security:
+// - BearerAuth: []
+//
+// Responses:
+//
+//	200: successResponse
+//	403: errorResponse
+
 // swagger:route GET /discourse_sso sso discourseSSO
 // Discourse SSO login
 //
