@@ -90,6 +90,7 @@ Read these directly; the pages above link into them rather than copy them:
 | ModTools AI Support Helper | [./reference/ai-support-helper.md](./reference/ai-support-helper.md) |
 | Contacting a community's volunteers (alerts) | [./reference/contact-group-alerts.md](./reference/contact-group-alerts.md) |
 | CookieYes watchdog (cookie banner checks) | [./reference/cookieyes-watchdog.md](./reference/cookieyes-watchdog.md) |
+| Google housekeeping (Search Console and Ads weekly checks) | [./reference/google-housekeeping.md](./reference/google-housekeeping.md) |
 | Chat prompts (Freegle's tappable questions) | [./reference/chat-prompts.md](./reference/chat-prompts.md) |
 | Google Play technical quality (DEX, memory, zero-tap) | [./reference/play-technical-quality.md](./reference/play-technical-quality.md) |
 | Improving Freegle from what people do and what they care about (the overview of idea farming and experiments) | [./ux-idea-farming-and-experiments.md](./ux-idea-farming-and-experiments.md) |

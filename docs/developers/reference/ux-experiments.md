@@ -1,8 +1,10 @@
 ---
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 owner: Freegle dev team
 covers:
   - iznik-batch/app/Services/Ux/UxExperimentService.php
+  - iznik-nuxt3/components/ChatReplyPane.vue
+  - iznik-nuxt3/tests/unit/components/ChatReplyPane.spec.js
   - iznik-batch/app/Services/Ux/BetaBinomial.php
   - iznik-batch/app/Services/Ux/UxRng.php
   - iznik-batch/app/Services/Ux/UxExperimentRefused.php
@@ -33,6 +35,8 @@ covers:
   - iznik-nuxt3/tests/e2e/test-mobile-web-app-interstitial.spec.js
   - iznik-nuxt3/plugins/uxExperiments.client.js
   - iznik-nuxt3/ux-experiments.manifest.json
+  - iznik-nuxt3/pages/ask/mobile/details.vue
+  - iznik-nuxt3/tests/unit/pages/ask/mobile/details.spec.js
   - iznik-nuxt3/tests/unit/uxExperimentsManifest.spec.js
   - iznik-batch/tests/Feature/Ux/UxExperimentServiceTest.php
   - iznik-batch/tests/Feature/Ux/UxExperimentBoundaryTest.php
@@ -779,6 +783,76 @@ first on the Offer flow (`give-photos-carry-on`, inconclusive, removed); this is
   inconclusive or stopped: the prop, the button, the arm read and the tests go, then
   `ux:experiment close ask-photos-carry-on --cleanup-pr=<url>`.
 
+### Tap an answer for when you could collect
+
+`reply-collect-chips` tests whether tapping an answer is easier than typing one, so fewer members hit the empty-box
+error when they press Send on a reply to an Offer. Sending bounces off validation about one time in five on the phone
+site; an Offer has two required boxes, and the second ("When could you collect?") is free text.
+
+- **Who.** A member replying to an **Offer** (`components/ChatReplyPane.vue`). In arm `b`, three buttons sit under
+  the collect box: **This weekend**, **Weekday evenings** and **Any time**. A tap puts that text in the box and clears
+  the "please suggest" error; the box stays editable and the tapped button shows as selected only while the box still
+  holds exactly its text. Control is the box alone. A Wanted has no collect box, so it never asks for the arm.
+- **Reading the arm.** `flowArm(FlowName.REPLY, 'reply-collect-chips')`, once, when the pane first knows the post is
+  an Offer, so only members who could see the buttons are counted. The app build is always control.
+- **Starts only when `confirm-reply` has stopped.** One experiment per funnel, and `confirm-reply` holds `reply`.
+- **By hand.** Whether members use the buttons: the share of sent replies whose collect text equals a chip.
+- **Starting it.** After the PR is deployed and the manifest entry is live, and `confirm-reply` is stopped:
+
+  ```bash
+  php artisan ux:experiment create --flow=reply --name=reply-collect-chips \
+    --title="Tap an answer for when you could collect" \
+    --hypothesis="Tapping an answer is easier than typing one, so fewer members are stopped by the empty collection-time box when they press Send." \
+    --change="For half of members replying to an Offer on the website, three buttons under the When could you collect? box (This weekend, Weekday evenings, Any time) fill the box when tapped. The box stays editable." \
+    --expected="More members finish a reply, by 3 points or more." \
+    --expected-points=3 --pr=https://github.com/Freegle/Iznik/pull/1909
+  php artisan ux:experiment start reply-collect-chips
+  ```
+
+  The primary event is `flow_complete` per `flow_start` on flow `reply` (base rate about 75%); `validation_failed`
+  per start is the secondary.
+
+- **Cleanup.** Adopted: the buttons always show, and the arm read goes from `ChatReplyPane.vue`. Reverted,
+  inconclusive or stopped: the buttons, their styles, the arm read and the tests go, then
+  `ux:experiment close reply-collect-chips --cleanup-pr=<url>`.
+
+### Who took it, already chosen
+
+`outcome-taker-preselect` tests whether starting "Mark as TAKEN" with the obvious person chosen gets more posts
+marked. In the control, the "who took it" list starts on "-- Please choose --" and a member who presses Mark as
+TAKEN without choosing is stopped (`validation_failed`, field `taker`).
+
+- **Who.** A member marking an ordinary (not bulk) post as Taken in `components/OutcomeBy.vue`, inside the outcome
+  modal, when the post has no taker recorded yet and either exactly one person was promised it
+  (`message.promises`) or, with no promise, exactly one person replied. In arm `b` that person starts in the list
+  as a normal row with their name and the x button, the same row a manual pick makes. The member can remove them
+  and choose someone else, or add more.
+- **No guess.** Two or more promised people, two or more repliers with no promise, a bulk post, or a promised
+  person whose profile has not loaded: nobody is chosen and the list is as control. A wrong guess records the
+  wrong person as the taker, so the arm only guesses when the member's own actions point to one person.
+- **Reading the arm.** `flowArm(FlowName.CHAT_OUTCOME, 'outcome-taker-preselect')` is read in `onMounted`, never in
+  setup, so the server render and the first client render match (control). It is read only when there is a person
+  to choose, because reading it counts the member as having seen the change; members with nobody to choose are not
+  counted in either arm.
+- **Sizing.** The default judgment: finishing the `chat_outcome` flow, base rate about 81%. No `--primary-event`.
+- **Guardrail by hand.** The share of marked-taken posts where the taker was changed from the one chosen for them,
+  from `messages_by`. A high share means the guess is wrong and the arm should be reverted.
+- **Starting it.** After the PR is deployed and the manifest entry is live, on the batch host:
+
+  ```bash
+  php artisan ux:experiment create --flow=chat_outcome --name=outcome-taker-preselect \
+    --title="Who took it, already chosen" \
+    --hypothesis="Members fail the who-took-it check when marking a post as taken, even when they promised it to one person or only one person replied." \
+    --change="For half of members, when exactly one person was promised the post, or exactly one replied, that person starts chosen in the list, with an x to remove them." \
+    --expected="More members finish marking a post as taken, by 3 points or more." \
+    --expected-points=3 --pr=https://github.com/Freegle/Iznik/pull/1910
+  php artisan ux:experiment start outcome-taker-preselect
+  ```
+
+- **Cleanup.** Adopted: the preselection becomes the only behaviour, the arm read goes. Reverted, inconclusive or
+  stopped: `singleLikelyTaker`, the `onMounted` block and the tests go, then
+  `ux:experiment close outcome-taker-preselect --cleanup-pr=<url>`.
+
 ### No options screen on the phone Offer flow
 
 `give-skip-options-screen` tests whether dropping a screen of two optional questions gets more phone Offers finished.
@@ -875,6 +949,93 @@ does not.
   goes. Reverted, inconclusive or stopped: `AppInterstitial.vue`, `useAppInterstitial.js`, the `LayoutCommon` line,
   their tests and the e2e spec go, the `app_store_click` entry stays in the two event lists for the next experiment,
   then `ux:experiment close mobile-web-app-interstitial --cleanup-pr=<url>`.
+
+### Join without a name
+
+`join-name-optional` tests whether leaving the name box off the Join pane gets more people to finish joining.
+
+- **Who.** Anyone who sees the Join pane of the login modal (`components/LoginModal.vue`, the pane shown when the
+  browser has never logged in or the member chose Join), on the website only. In arm `b` the **Your name**
+  box is not drawn and the signup is sent with no `displayname`. Control is the four-field pane as it was. The
+  server already accepts an empty name (`PutUser`, `iznik-server-go/user/user.go`). It does not stay empty: the
+  first time the member is read, `InventName` makes one from the local part of their email address (tidied by
+  `TidyName`), or a generated name when that is unusable, stores it as `users.fullname` and sets
+  `users.inventedname`. "A freegler" is only the fallback when neither works. So other members see a name taken
+  from the joiner's email address.
+- **Asked later.** Givers choose a real name more often when several people reply (live data, 90 days to
+  2026-10-24: from the third reply on, 19% of real-name repliers were chosen against 14% of invented-name ones,
+  accounts over 30 days old). So an arm `b` signup sets `asknamelater` in the member's settings
+  (`composables/useAskName.js`), and the next time they send a reply or finish a post, `AskNameModal` asks
+  "What's your name?" once it has gone, so the ask never stops either from finishing. Save stores the
+  `displayname` and clears the flag; Not now keeps it, so the next post or reply asks again. Client log events
+  `ask_name_shown`, `ask_name_saved` and `ask_name_skipped` count it. Nobody but an arm `b` joiner has the flag.
+- **Not a sign-in.** `loginNative` takes "no name, an email and a password" on the Join pane for a sign-in typed
+  on the wrong pane and logs the member in. With the box hidden that is not the case, so the check is off in arm `b`.
+  Social sign-in is unchanged in both arms.
+- **Reading the arm.** The arm is read once per page view, after mount, when the modal is open on the Join pane,
+  because reading it counts the member as having seen the variant. In the app the arm is always control, as for
+  every web experiment, so the app keeps the four-field pane.
+- **Also check by hand.** The share of new accounts with `users.inventedname = 1` in each arm, and a sample of
+  those names, so moderators are not handed a flood of names made from email addresses. `users.fullname` is no
+  guide: it is filled with the invented name. And how often each arm's joiners are chosen (`messages_by` or
+  `messages_promises`) on Offers with three or more repliers, where a missing name has been seen to cost them.
+- **Starting it.** After the PR is deployed and the manifest entry is live, on the batch host:
+
+  ```bash
+  php artisan ux:experiment create --flow=login --name=join-name-optional \
+    --title="Join without a name" \
+    --hypothesis="The Join pane asks four things and the name is the only one a member does not need to join, so dropping it removes a place to stall." \
+    --change="For half of members, the Join pane has no Your name box. They join with an email and a password." \
+    --expected="More members who start logging in finish, by 5 points or more." \
+    --expected-points=5 --pr=https://github.com/Freegle/Iznik/pull/1906
+  php artisan ux:experiment start join-name-optional
+  ```
+
+- **Cleanup.** Adopted: the box and the `displayname` go from `LoginModal.vue`, with the `confused` check, and
+  the arm read goes; the ask-later prompt stays for every nameless signup. Reverted, inconclusive or stopped: the arm read, `nameHidden`, `useAskName`,
+  `AskNameModal` and the tests go (members still flagged are simply never asked), then
+  `ux:experiment close join-name-optional --cleanup-pr=<url>`.
+
+### The title as the description on the Wanted details step
+
+`ask-description-optional` tests whether letting the item name stand as the description gets more Wanted posts
+finished. On the phone Wanted flow the details step (`pages/ask/mobile/details.vue`) refuses to go on when
+there is no description and no real photo. Skipping the photo is the main way into that step, so a member
+skips one box and meets another.
+
+- **Who.** A member on the phone version of the Wanted flow with no real photo attached (an AI picture does
+  not count as one). In arm `b`, if the description box is empty (or only a number), pressing Next sets the
+  description to the item name and goes on to the location step. The description box stays visible and
+  optional, and nothing is added to the page. Control is the rule as it was: the red "describe" message.
+- **Short item names.** The compose store (`messageValid`) wants at least 3 characters of description when
+  there is no real photo, so an item name under 3 characters ("TV") still gets the prompt in arm `b`.
+- **Not the desktop and tablet page.** `PostMessageTablet` is one form with photos and details together and its
+  rule is unchanged. The flow events of `ask` count both versions, so a desktop member is counted in arm `b`
+  and sees control, which dilutes the effect. The numbers in the plan already allow for it (`expected_points` 3).
+- **Reading the arm.** The arm is read in `onMounted`, never on the server, and only while no real photo is
+  attached, because reading counts the member as under the rule. A member who arrives with a real photo and
+  removes it is counted then, once.
+- **One Wanted experiment at a time.** Both this and `ask-photos-carry-on` change the no-photo path, so this
+  one starts only after `ask-photos-carry-on` has been stopped.
+- **Measured.** The default for a funnel: finishing `ask` per start, so there is no `--primary-event` and no
+  `--base-rate`. The guardrails are the `ask` and `login` funnels. The quality check is the share of Wanted
+  posts whose body equals the item name in each arm, counted from `messages.textbody` over each arm's window.
+- **Starting it.** After the PR is deployed, the manifest entry is live and `ask-photos-carry-on` has stopped,
+  on the batch host:
+
+  ```bash
+  php artisan ux:experiment create --flow=ask --name=ask-description-optional \
+    --title="The title as the description on the Wanted details step" \
+    --hypothesis="Asking for a description after the member skipped the photo is a wall, and the title already describes a wanted post." \
+    --change="For half of members on the phone version of the Wanted flow with no real photo, pressing Next with the description empty uses the item name as the description and goes on, instead of asking for one." \
+    --expected="More members finish posting a Wanted, by 3 points or more." \
+    --expected-points=3 --touches=ask,login --pr=https://github.com/Freegle/Iznik/pull/1907
+  php artisan ux:experiment start ask-description-optional
+  ```
+
+- **Cleanup.** Adopted: delete the arm read and make the title the fallback for everyone, or drop the rule.
+  Reverted, inconclusive or stopped: the arm read, the `titleStands` branch and the tests go, then
+  `ux:experiment close ask-description-optional --cleanup-pr=<url>`.
 
 ## Experiments in mail, push and the server
 
@@ -1092,8 +1253,12 @@ without an error. The export reads its rows from the write node too.
   chat "Do you still want it?"; a yes (the button) lets it through, a no or three days of silence drops it. Whatever
   else the replier writes in that chat while the question is open waits behind it and goes the same way. In `control` nothing changes. Both arms write one exposure row per replier and post, with the reply's
   `chat_messages.id` as the subject and `damaged`, `car` or `both` as the stratum.
-- **Where.** `planReplyConfirm` in `iznik-server-go/chat/replyconfirm.go` looks the arm up on its first line with
-  `ux.ExperimentArm`, so with no experiment running a reply costs nothing extra. It only decides, and it decides before
+- **Not a child car seat.** A reply to an offer of a child car seat is asked a safety question whatever the arm,
+  and from the app too; that is policy, writes no exposure and is outside this experiment
+  ([chat-prompts.md](chat-prompts.md#child-car-seats)).
+- **Where.** `planReplyConfirm` in `iznik-server-go/chat/replyconfirm.go` reads the post, and for anything but a car
+  seat looks the arm up with `ux.ExperimentArm` before any other read, so with no experiment running a reply costs
+  one read and nothing more. It only decides, and it decides before
   the reply is written. For `ask`, `CreateChatMessage` then writes the reply, the exposure (`ux.RecordExposure`), the
   question and the hold in one transaction, because the batch takes any committed unprocessed reply, whatever its age: a
   run between the reply and its hold would deliver it. The exposure, the question and the hold are in a savepoint, so if
