@@ -67,3 +67,67 @@ describe('renderStatusPostBody', () => {
     expect(result.bugCount).toBe(400)
   })
 })
+
+describe('the queue and the waiting list', () => {
+  beforeEach(() => {
+    resetDbForTests()
+  })
+
+  function bug(db: ReturnType<typeof getDb>, topic: number, state: string, daysAgo: number) {
+    upsertDiscourseBug(db, { topic, post: 1, reporter: `r${topic}`, excerpt: `report ${topic}`, state: state as any })
+    db.prepare(`UPDATE discourse_bug SET last_seen_at = datetime('now', ?) WHERE topic = ?`).run(`-${daysAgo} days`, topic)
+  }
+
+  it('leaves out reports with no activity for 14 days, and says how many', () => {
+    const db = getDb(':memory:')
+    bug(db, 30001, 'deferred', 2)
+    bug(db, 30002, 'deferred', 20)
+    bug(db, 30003, 'open', 60)
+
+    const raw = renderStatusPostBody(db).raw
+
+    expect(raw).toContain('report 30001')
+    expect(raw).not.toContain('report 30002')
+    expect(raw).not.toContain('report 30003')
+    expect(raw).toContain('2 older reports with no activity for 14 days are not listed')
+  })
+
+  it('counts a new post on the topic as activity, and shows the date', () => {
+    const db = getDb(':memory:')
+    bug(db, 30004, 'deferred', 45)
+    db.prepare(`INSERT INTO topic_cursor (topic_id, last_post_number, updated_at) VALUES (30004, 9, datetime('now', '-1 day'))`).run()
+
+    const raw = renderStatusPostBody(db).raw
+    const day = new Date(Date.now() - 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+
+    expect(raw).toContain('report 30004')
+    expect(raw).toContain('| Last activity |')
+    expect(raw).toContain(`| ${day} |`)
+  })
+
+  it('leaves out a question already answered in its thread', () => {
+    const db = getDb(':memory:')
+    upsertDiscourseBug(db, { topic: 33001, post: 1, reporter: 'q', excerpt: 'answered question', state: 'deferred', reason: 'needs a human answer: already answered in the thread' })
+    upsertDiscourseBug(db, { topic: 33002, post: 1, reporter: 'q', excerpt: 'open question', state: 'deferred', reason: 'needs a human answer: policy' })
+
+    const raw = renderStatusPostBody(db).raw
+
+    expect(raw).not.toContain('answered question')
+    expect(raw).toContain('open question')
+  })
+
+  it('keeps the fixed list when the waiting list is too long', () => {
+    const db = getDb(':memory:')
+    for (let i = 0; i < 300; i++) {
+      upsertDiscourseBug(db, { topic: 31000 + i, post: 1, reporter: 'w', excerpt: 'waiting '.repeat(20), state: 'deferred', reason: 'x'.repeat(100) })
+    }
+    upsertDiscourseBug(db, { topic: 32000, post: 1, reporter: 'f', excerpt: 'a fixed one', state: 'fixed' })
+    db.prepare(`UPDATE discourse_bug SET fixed_at = datetime('now', '-1 day') WHERE topic = 32000`).run()
+
+    const raw = renderStatusPostBody(db).raw
+
+    expect(raw.length).toBeLessThanOrEqual(MAX_STATUS_POST_CHARS)
+    expect(raw).toContain('a fixed one')
+    expect(raw.slice(raw.indexOf('## Waiting'))).toMatch(/…and \d+ more not shown here/)
+  })
+})

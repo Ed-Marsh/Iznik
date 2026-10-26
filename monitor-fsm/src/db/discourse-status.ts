@@ -51,6 +51,15 @@ function reconcileBugStates(db: DB): void {
 // under it so the edit reason and any encoding have room.
 export const MAX_STATUS_POST_CHARS = 30000
 
+// A report in the queue or waiting for information with no activity for this long is left off the list.
+export const STALE_AFTER_DAYS = Number(process.env.MONITOR_STATUS_STALE_DAYS ?? 14)
+
+// "26 Oct" from an SQLite UTC timestamp.
+function formatDay(ts: string): string {
+  const d = new Date(ts.replace(' ', 'T') + 'Z')
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+}
+
 export interface StatusSection {
   title: string
   header: string[]
@@ -133,13 +142,34 @@ export function renderStatusPostBody(db: DB): StatusRenderResult {
     `[@${b.reporter ?? 'reporter'}](${DISCOURSE_BASE}/t/${b.topic}/${b.post})`
   const excerptOf = (e: string | null) => escapeCell((e ?? '').slice(0, 160))
 
+  // Last activity on a report: the later of when it was last classified and when its topic last had a
+  // new post (topic_cursor). The queue and the waiting list leave out anything quiet for longer than
+  // STALE_AFTER_DAYS, so the list is what is live now rather than everything ever raised.
+  const topicActivity = new Map<number, string>()
+  for (const r of db.prepare('SELECT topic_id, updated_at FROM topic_cursor').all() as Array<{ topic_id: number; updated_at: string }>) {
+    topicActivity.set(r.topic_id, r.updated_at)
+  }
+  const lastActivity = (b: { topic: number; last_seen_at: string }) => {
+    const t = topicActivity.get(b.topic)
+    return t && t > b.last_seen_at ? t : b.last_seen_at
+  }
+  const cutoff = new Date(Date.now() - STALE_AFTER_DAYS * 86400000).toISOString().replace('T', ' ').slice(0, 19)
+  const fresh = <T extends { topic: number; last_seen_at: string }>(rows: T[]) => rows.filter(b => lastActivity(b) >= cutoff)
+  const byActivity = <T extends { topic: number; last_seen_at: string }>(rows: T[]) =>
+    [...rows].sort((x, y) => lastActivity(y).localeCompare(lastActivity(x)))
+  const when = (b: { topic: number; last_seen_at: string }) => formatDay(lastActivity(b))
+
   const inProgress = open.filter(b => b.state === 'fix-queued' && b.pr_number)
-  const queued = open.filter(b => ['open', 'investigating'].includes(b.state))
-  const deferred = open.filter(b => b.state === 'deferred')
+  const queuedAll = open.filter(b => ['open', 'investigating'].includes(b.state))
+  // A question the classifier marked as already answered in its thread is not waiting on anyone.
+  const deferredAll = open.filter(b => b.state === 'deferred' && !/already answered in the thread/i.test(b.reason ?? ''))
+  const queued = byActivity(fresh(queuedAll))
+  const deferred = byActivity(fresh(deferredAll))
+  const stale = queuedAll.length - queued.length + deferredAll.length - deferred.length
   const working = [...inProgress, ...queued]
 
   // Each table, in the order it appears. dropOrder says which loses rows first when the post is
-  // over Discourse's length limit: the fixed list goes first, the bugs being fixed last.
+  // over Discourse's length limit: the waiting list goes first, the bugs being fixed last.
   const sections: StatusSection[] = [
     {
       title: 'Bugs being fixed',
@@ -149,26 +179,29 @@ export function renderStatusPostBody(db: DB): StatusRenderResult {
     },
     {
       title: 'In our queue',
-      header: ['| Area | Reporter | Issue |', '|---|---|---|'],
-      rows: queued.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} |`),
-      dropOrder: 2,
+      header: ['| Area | Reporter | Issue | Last activity |', '|---|---|---|---|'],
+      rows: queued.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${when(b)} |`),
+      dropOrder: 1,
     },
     {
       title: 'Fixed in the last 7 days',
       header: ['| Area | Reporter | Issue | PR | Live? |', '|---|---|---|---|---|'],
       rows: recentFixed.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${prLink(b.pr_number)} | ${b.pr_number ? liveOf(b.pr_number, ':hammer_and_wrench: Pending') : ''} |`),
-      dropOrder: 0,
+      dropOrder: 2,
     },
     {
       title: 'Waiting on more information',
-      header: ['| Area | Reporter | Issue | What we\'re waiting for |', '|---|---|---|---|'],
-      rows: deferred.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${escapeCell(b.reason ?? '—')} |`),
-      dropOrder: 1,
+      header: ['| Area | Reporter | Issue | What we\'re waiting for | Last activity |', '|---|---|---|---|---|'],
+      rows: deferred.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${escapeCell(b.reason ?? '—')} | ${when(b)} |`),
+      dropOrder: 0,
     },
   ]
 
   const empty = working.length === 0 && recentFixed.length === 0 && deferred.length === 0
-  const raw = fitStatusPost(head, sections, empty ? ['*Nothing on the list right now — all caught up!*', ''] : [])
+  const tail: string[] = []
+  if (empty) tail.push('*Nothing on the list right now — all caught up!*', '')
+  if (stale > 0) tail.push(`*${stale} older report${stale === 1 ? '' : 's'} with no activity for ${STALE_AFTER_DAYS} days ${stale === 1 ? 'is' : 'are'} not listed. A new post on the topic brings it back.*`, '')
+  const raw = fitStatusPost(head, sections, tail)
 
   return {
     raw,
