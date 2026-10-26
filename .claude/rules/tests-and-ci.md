@@ -191,6 +191,12 @@ genuinely on different lines.
 - **`status-nuxt` has no lockfile**, so its image re-resolves dependencies on every build and is
   at the mercy of whatever the base image's package manager does with the peer graph. A build
   that worked yesterday can fail today with nothing changed on our side.
+- **A seeded pending post that a test edits can leave the pending queue mid-run.** The per-spec
+  pending posts are seeded Pending on an unmoderated community. An edit to the subject or text makes
+  the batch content check look at the post again, and finding nothing wrong it approves it. A later
+  test in the same spec that expects that post in the queue passes or fails on whether the check ran
+  in between. Give each test that edits a pending post its own one (`pending.offer`,
+  `pending.wanted`), as `test-modtools-edit-message.spec.js` does.
 - **A passing Playwright run deletes every PNG at the top of `SCREENSHOTS_DIR`.** `fixtures.js`
   has a global `afterAll` that calls `cleanupScreenshots()` when the run exits clean, so images
   a spec writes there with `page.screenshot({ path })` vanish seconds after they are logged as
@@ -376,6 +382,13 @@ build, not by bisecting the boundary.
   Go run through the status API. After one, the worktree's Support user was a Moderator again
   and ModTools said "You don't have access to SysAdmin tools". Re-check roles and seeded rows
   after any Go run, before trusting what the dev site shows.
+- **A Playwright POST whose database reset dies part-way leaves the database empty, and the
+  env endpoint still answers.** Under heavy host load (another session's vitest workers, load
+  average over 1,000) the reset's `spawnSync` timed out after dropping the data, so `users` had
+  0 rows, and `GET /api/tests/env/<prefix>` went on returning the seeded ids from
+  `test-envs.json` with a 200. ModTools then said "We don't know that email address" for a
+  moderator the env endpoint had just named. Count `users` before trusting either; a second
+  POST, once the load has gone, resets it properly.
 - **A browser run through the status API empties rows seeded by hand.** It resets the database
   to its fixtures as it starts. Afterwards the seeded session and every `ux_*` rollup row were
   gone, and the UX tab showed each funnel at 0 started with no error. The UX read API keeps each
