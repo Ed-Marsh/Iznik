@@ -1069,7 +1069,7 @@ taker rated the poster after 5% (nobody asks: the thumbs are in the chat header,
 - **What it shows.** `RatingNudgeModal.vue`: "How did it go?", up to three people, each with their photo, name,
   "You gave them Sofa" or "They gave you Lamp", thumbs up ("Good"), thumbs down ("Not good", which opens the
   existing reason modal `UserRatingsDownModal`) and Skip. Not now closes it; a tap on the backdrop does not. A
-  person rated or skipped leaves the list; when the list is empty it says Thanks and closes. Skip is kept for
+  person rated or skipped leaves the list; when the list is empty it says Thanks for a second and a half, then closes. Skip is kept for
   30 days on the browser (`freegle_rating_nudge_skipped`), which is longer than the server looks back, so it
   means "not for this handover".
 - **Telemetry.** `rating_nudge_shown` (`count`), `rating_nudge_skipped` and `rating_nudge_dismissed` (`how`:
