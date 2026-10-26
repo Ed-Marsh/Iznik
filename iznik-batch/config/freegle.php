@@ -1710,6 +1710,9 @@ return [
     'whatjobs' => [
         'feed1' => EnvSetting::env('WHATJOBS_FEED1', ''),
         'feed2' => EnvSetting::env('WHATJOBS_FEED2', ''),
+        // The newest job may be at most this old before integrations:check-whatjobs-freshness
+        // fails and the SysAdmin Cron Jobs tab goes red.
+        'max_feed_age_hours' => (int) EnvSetting::env('WHATJOBS_MAX_FEED_AGE_HOURS', 48),
     ],
 
     'reach_volunteering' => [
