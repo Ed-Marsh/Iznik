@@ -124,17 +124,43 @@ class AiImageMatcherServiceTest extends TestCase
         $this->assertArrayHasKey('Folding wheelchairs', $this->matcher()->matchMany(['Folding wheelchairs'])['reuse']);
     }
 
-    public function test_backfill_keys_the_most_used_picture_first(): void
+    public function test_backfill_keeps_the_most_used_picture_of_an_item_and_retires_the_rest(): void
     {
-        $quiet = $this->picture('Sofa (spare)', 'active', 1);
+        $quiet = $this->picture('Grey sofa wanted', 'active', 1);
         $busy = $this->picture('Sofa', 'active', 50);
-        $this->items = ['Sofa (spare)' => 'sofa', 'Sofa' => 'sofa'];
+        $other = $this->picture('Lamp', 'active', 3);
+        $post = $this->createTestMessage($this->createTestUser(), $this->createTestGroup());
+        DB::table('messages_attachments')->insert([
+            'msgid' => $post->id, 'externaluid' => 'freegletusd-'.md5('Grey sofa wanted'),
+            'externalmods' => json_encode(['ai' => true]), 'contenttype' => 'image/jpeg',
+        ]);
+        DB::table('ai_image_aliases')->insert(['name' => 'Gray sofas', 'aiimageid' => $quiet, 'method' => 'item']);
+        $this->items = ['Grey sofa wanted' => 'sofa', 'Sofa' => 'sofa', 'Lamp' => 'lamp'];
 
-        $this->assertSame(2, $this->matcher()->backfill(0, 100));
+        $this->assertSame(['seen' => 3, 'kept' => 2, 'retired' => 1], $this->matcher()->backfill(0, 100));
 
+        // The item has one picture, the one on most posts.
         $this->assertDatabaseHas('ai_image_aliases', ['name' => 'sofa', 'aiimageid' => $busy, 'method' => 'itemkey']);
-        $this->assertDatabaseMissing('ai_image_aliases', ['aiimageid' => $quiet]);
-        $this->assertSame(0, $this->matcher()->backfill(2, 100));
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'lamp', 'aiimageid' => $other]);
+        // The other picture of it is gone; its post, its wording and its aliases use the item's.
+        $this->assertDatabaseMissing('ai_images', ['id' => $quiet]);
+        $this->assertSame('freegletusd-'.md5('Sofa'), DB::table('messages_attachments')->where('msgid', $post->id)->value('externaluid'));
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'Grey sofa wanted', 'aiimageid' => $busy, 'method' => 'item']);
+        $this->assertDatabaseHas('ai_image_aliases', ['name' => 'Gray sofas', 'aiimageid' => $busy]);
+
+        $this->assertSame(['seen' => 0, 'kept' => 0, 'retired' => 0], $this->matcher()->backfill(2, 100));
+    }
+
+    public function test_a_dry_run_backfill_counts_but_changes_nothing(): void
+    {
+        $quiet = $this->picture('Grey sofa wanted', 'active', 1);
+        $this->picture('Sofa', 'active', 50);
+        $this->items = ['Grey sofa wanted' => 'sofa', 'Sofa' => 'sofa'];
+
+        $this->assertSame(['seen' => 2, 'kept' => 2, 'retired' => 1], $this->matcher()->backfill(0, 100, dryRun: true));
+
+        $this->assertDatabaseHas('ai_images', ['id' => $quiet]);
+        $this->assertDatabaseCount('ai_image_aliases', 0);
     }
 
     public function test_a_dry_run_stores_nothing(): void
