@@ -1,5 +1,5 @@
 ---
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 owner: Freegle dev team
 covers:
   - iznik-batch/app/Services/Ux/UxExperimentService.php
@@ -1253,8 +1253,12 @@ without an error. The export reads its rows from the write node too.
   chat "Do you still want it?"; a yes (the button) lets it through, a no or three days of silence drops it. Whatever
   else the replier writes in that chat while the question is open waits behind it and goes the same way. In `control` nothing changes. Both arms write one exposure row per replier and post, with the reply's
   `chat_messages.id` as the subject and `damaged`, `car` or `both` as the stratum.
-- **Where.** `planReplyConfirm` in `iznik-server-go/chat/replyconfirm.go` looks the arm up on its first line with
-  `ux.ExperimentArm`, so with no experiment running a reply costs nothing extra. It only decides, and it decides before
+- **Not a child car seat.** A reply to an offer of a child car seat is asked a safety question whatever the arm,
+  and from the app too; that is policy, writes no exposure and is outside this experiment
+  ([chat-prompts.md](chat-prompts.md#child-car-seats)).
+- **Where.** `planReplyConfirm` in `iznik-server-go/chat/replyconfirm.go` reads the post, and for anything but a car
+  seat looks the arm up with `ux.ExperimentArm` before any other read, so with no experiment running a reply costs
+  one read and nothing more. It only decides, and it decides before
   the reply is written. For `ask`, `CreateChatMessage` then writes the reply, the exposure (`ux.RecordExposure`), the
   question and the hold in one transaction, because the batch takes any committed unprocessed reply, whatever its age: a
   run between the reply and its hold would deliver it. The exposure, the question and the hold are in a savepoint, so if
