@@ -1749,6 +1749,15 @@ Schedule::command('ai:images:backfill-items')
     ->appendOutputTo(cronLog('ai:images:backfill-items'))
     ->runInBackground();
 
+// The single item each new or live post is about, for pictures, matched posts and search. New
+// posts get theirs within the minute, ahead of the illustrations job's next pass; live posts from
+// before this get theirs 1,000 a run.
+Schedule::command('messages:clean-items')
+    ->everyMinute()
+    ->withoutOverlapping(10)
+    ->appendOutputTo(cronLog('messages:clean-items'))
+    ->runInBackground();
+
 
 // =============================================================================
 // GIFT AID

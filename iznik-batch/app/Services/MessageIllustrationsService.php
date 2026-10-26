@@ -261,7 +261,19 @@ class MessageIllustrationsService
             // or names the item to draw so the next variant finds it. All of the pass's names
             // go in one request.
             $unpictured = array_column(array_filter($candidates, fn ($c) => ! $c['uid']), 'itemName');
-            $match = $unpictured ? $this->matcher->matchMany($unpictured, $dryRun) : ['reuse' => [], 'items' => []];
+            // Most posts already have their item from messages:clean-items; only the rest are cleaned here.
+            $known = [];
+            if ($unpictured) {
+                $stored = DB::table('messages_cleaned_items')
+                    ->whereIn('msgid', array_column(array_filter($candidates, fn ($c) => ! $c['uid']), 'msgid'))
+                    ->pluck('item', 'msgid');
+                foreach ($candidates as $c) {
+                    if (isset($stored[$c['msgid']])) {
+                        $known[$c['itemName']] = $stored[$c['msgid']];
+                    }
+                }
+            }
+            $match = $unpictured ? $this->matcher->matchMany($unpictured, $dryRun, $known) : ['reuse' => [], 'items' => []];
 
             foreach ($candidates as $c) {
                 $c['uid'] ??= $match['reuse'][$c['itemName']] ?? null;
@@ -433,12 +445,7 @@ class MessageIllustrationsService
 
     private function extractItemName(string $subject): string
     {
-        $name = preg_replace('/^(OFFER|OFFERED|WANTED|REQUESTED|TAKEN|RECEIVED):\s*/i', '', $subject);
-        $name = preg_replace('/\s*\([^)]+\)\s*$/', '', $name ?? '');
-
-        // "iron please" is a request for an iron, not for an "iron please" - and the clean
-        // name is what finds the illustration we have already generated for one.
-        return ItemName::stripCourtesy(trim($name ?? ''));
+        return ItemName::fromSubject($subject);
     }
 
     /**

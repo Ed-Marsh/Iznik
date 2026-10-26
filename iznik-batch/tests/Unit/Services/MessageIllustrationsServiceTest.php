@@ -25,6 +25,7 @@ class MessageIllustrationsServiceTest extends TestCase
         DB::table('messages_attachments')->delete();
         DB::table('messages_spatial')->delete();
         DB::table('ai_image_aliases')->delete();
+        DB::table('messages_cleaned_items')->delete();
         DB::table('ai_images')->delete();
 
         // No Gemini in tests: the cleaner answers from $this->items.
@@ -743,5 +744,19 @@ class MessageIllustrationsServiceTest extends TestCase
         $this->makeService($mock)->processIllustrations();
 
         $this->assertSame('freegletusd-rice', DB::table('messages_attachments')->where('msgid', $message->id)->value('externaluid'));
+    }
+
+    public function test_the_item_already_worked_out_for_a_post_is_used_without_asking_again(): void
+    {
+        DB::table('ai_images')->insert(['name' => 'Walking frame', 'externaluid' => 'freegletusd-frame', 'imagehash' => 'hf']);
+        $message = $this->createMessageInSpatial('OFFER: Aluminium walking frame (TestTown)');
+        DB::table('messages_cleaned_items')->insert(['msgid' => $message->id, 'item' => 'walking frame', 'itemkey' => 'walking frame']);
+        // The fake cleaner knows nothing, so a match can only come from the stored item.
+
+        $mock = $this->makeMockPollinations();
+        $mock->expects($this->never())->method('fetchBatch');
+        $this->makeService($mock)->processIllustrations();
+
+        $this->assertSame('freegletusd-frame', DB::table('messages_attachments')->where('msgid', $message->id)->value('externaluid'));
     }
 }

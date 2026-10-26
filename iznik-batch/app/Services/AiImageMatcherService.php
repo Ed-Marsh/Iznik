@@ -23,19 +23,23 @@ class AiImageMatcherService
 
     /**
      * @param  list<string>  $names  item names with no picture of their own
+     * @param  array<string,string>  $known  name => item already worked out (messages_cleaned_items), so
+     *                                       only the rest go to the cleaner
      * @return array{reuse: array<string,string>, items: array<string,string>}
      *                                                                         reuse: name => externaluid of a picture to use now;
      *                                                                         items: name => the item to draw for a name that needs a new picture.
      *                                                                         A name in neither is generated from its own wording, as before.
      */
-    public function matchMany(array $names, bool $dryRun = false): array
+    public function matchMany(array $names, bool $dryRun = false, array $known = []): array
     {
         $names = array_values(array_unique(array_filter($names, fn ($n) => $n !== '')));
         $reuse = $names ? $this->aliasLookup($names) : [];
         $items = [];
 
         $left = array_values(array_filter($names, fn ($n) => ! isset($reuse[$n])));
-        foreach ($this->cleaner->clean($left) as $name => $item) {
+        $cleaned = array_intersect_key($known, array_flip($left))
+            + $this->cleaner->clean(array_values(array_filter($left, fn ($n) => ! isset($known[$n]))));
+        foreach ($cleaned as $name => $item) {
             if ($item === ItemCleanerService::NONE) {
                 continue;
             }
