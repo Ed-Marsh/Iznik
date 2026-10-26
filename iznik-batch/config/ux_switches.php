@@ -31,4 +31,16 @@
  *
  * docs/developers/reference/ux-experiments.md, "Experiments in mail, push and the server".
  */
-return [];
+return [
+    [
+        'name' => 'familiar-poster',
+        'opened' => '2026-10-26',
+        'pr' => 'https://github.com/Freegle/Iznik/pull/NNNN',
+        'keep_until' => null,
+        'channel' => 'email',
+        'type' => 'FamiliarPosts',
+        'varies' => 'step',
+        'arms' => ['control', 'notify'],
+        'metric' => ['source' => 'familiar_reply', 'window_hours' => 48],
+    ],
+];
