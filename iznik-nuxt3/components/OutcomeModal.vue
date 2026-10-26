@@ -476,6 +476,11 @@ async function submit(callback) {
             throw error
           }
         }
+      } else {
+        // Some are left, so the post stays up. Fetch it again so the card
+        // shows "Part gone" at once: without that nothing on the page changed,
+        // and the member could not tell the save had done anything.
+        await messageStore.fetch(props.id, true)
       }
     } catch (e) {
       flow.submitResult(false, e?.response?.status ?? null, 'error')

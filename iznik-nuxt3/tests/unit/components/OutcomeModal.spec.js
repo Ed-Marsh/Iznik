@@ -689,6 +689,15 @@ describe('OutcomeModal', () => {
       expect(wrapper.text()).toContain('Your post will stay up')
     })
 
+    it('fetches the post again when some are left, so the card shows it', async () => {
+      multiItem()
+      const wrapper = createWrapper()
+      wrapper.vm.tookUsers = [{ userid: 7 }]
+      await wrapper.find('.some-left').trigger('click')
+      await wrapper.vm.submit(() => {})
+      expect(mockFetch).toHaveBeenCalledWith(123, true)
+    })
+
     it('finishes a post that is already part gone', async () => {
       multiItem({ partgone: true, by: { userid: 7, displayname: 'A' } })
       const wrapper = createWrapper()
