@@ -95,7 +95,7 @@ php artisan ux:experiment create --name=familiar-poster --flow=reply \
   --hypothesis="Members reply more to a post when they know the person who posted it." \
   --change="Members who chatted with a poster in the last 90 days, and not badly, get an email about the new post." \
   --expected="More of them reply to the post within 48 hours." \
-  --pr=https://github.com/Freegle/Iznik/pull/NNNN \
+  --pr=https://github.com/Freegle/Iznik/pull/1927 \
   --arms='{"control":[0,49],"notify":[50,99]}' \
   --design='{"channel":"email","type":"FamiliarPosts","source":"familiar_reply","window_hours":48,"intake_hours":120,"max_hours":168,"expected_points":2}'
 php artisan ux:experiment start familiar-poster

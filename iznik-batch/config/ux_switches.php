@@ -20,7 +20,7 @@
  *   [
  *       'name' => 'my-experiment',                  // the experiment's name, as in UxArm::for($id, 'my-experiment')
  *       'opened' => '2026-10-17',                   // YYYY-MM-DD
- *       'pr' => 'https://github.com/Freegle/Iznik/pull/NNNN',
+ *       'pr' => 'https://github.com/Freegle/Iznik/pull/1927',
  *       'keep_until' => null,                       // YYYY-MM-DD, with the reason in the PR
  *       'channel' => 'email',                       // email, push or server
  *       'type' => 'UnifiedDigestDaily',             // the email_type or the push kind
@@ -35,7 +35,7 @@ return [
     [
         'name' => 'familiar-poster',
         'opened' => '2026-10-26',
-        'pr' => 'https://github.com/Freegle/Iznik/pull/NNNN',
+        'pr' => 'https://github.com/Freegle/Iznik/pull/1927',
         'keep_until' => null,
         'channel' => 'email',
         'type' => 'FamiliarPosts',
