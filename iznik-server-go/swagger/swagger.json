@@ -8169,6 +8169,29 @@
     ]
    }
   },
+  "/user/unrated": {
+   "get": {
+    "description": "Lists the freeglers the logged-in member handed an item over with in the last 14 days (either direction) and has not rated, newest first, one entry per person, at most five. Used by the rate-on-return experiment to ask on the next visit.",
+    "tags": [
+     "user"
+    ],
+    "summary": "People the member has handed over with and not rated",
+    "operationId": "getUnrated",
+    "responses": {
+     "200": {
+      "description": "Up to five people to rate"
+     },
+     "401": {
+      "$ref": "#/responses/errorResponse"
+     }
+    },
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ]
+   }
+  },
   "/user/unsubscribe": {
    "get": {
     "description": "Turns off one category of Freegle email for a user - the HTTPS arm of the\nList-Unsubscribe header on every bulk mailable. GET only asks; it does not\napply the change (POST applies it).",

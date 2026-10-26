@@ -51,6 +51,7 @@ func GetUnrated(c *fiber.Ctx) error {
 	// The first branch is the member's own posts and who took them (messages.fromuser is indexed, then
 	// messages_by by msgid); the second is the posts the member took (messages_by by userid, then the
 	// message by primary key). Both are bounded by the handover time.
+	// keep-raw: a UNION ALL of two branches used as a derived table in FROM, with a correlated subquery in the select list; a GORM chain cannot render the union as a FROM source.
 	db.Raw(`SELECT t.userid, t.msgid, m.subject, m.type, t.poster, t.timestamp, `+
 		`COALESCE((SELECT i.name FROM messages_items mi INNER JOIN items i ON i.id = mi.itemid WHERE mi.msgid = m.id ORDER BY mi.itemid LIMIT 1), '') AS item `+
 		`FROM (`+
