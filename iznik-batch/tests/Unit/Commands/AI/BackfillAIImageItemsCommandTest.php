@@ -44,7 +44,7 @@ class BackfillAIImageItemsCommandTest extends TestCase
         $this->assertSame('3', DB::table('config')->where('key', 'ai.images_item_backfill_offset')->value('value'));
 
         // Through: nothing more to do.
-        $this->artisan('ai:images:backfill-items')->expectsOutputToContain('Cleaned 0 picture names, 3 so far')->assertSuccessful();
+        $this->artisan('ai:images:backfill-items')->expectsOutputToContain('Looked at 0 pictures, retired 0, 3 kept so far')->assertSuccessful();
     }
 
     public function test_without_a_key_it_does_nothing(): void

@@ -19,6 +19,9 @@ use Illuminate\Support\Facades\Log;
  */
 class AiImageMatcherService
 {
+    /** @var array<string,int> item key => picture, in a dry-run backfill */
+    private array $dryRunKeys = [];
+
     public function __construct(private ItemCleanerService $cleaner) {}
 
     /**
@@ -82,7 +85,17 @@ class AiImageMatcherService
      * Give existing pictures their item key, most-used first so a key shared by several
      * pictures goes to the best-known one. Returns how many names were cleaned.
      */
-    public function backfill(int $offset, int $limit): int
+    /**
+     * A picture whose item already has a picture is obsolete: its posts are pointed at the
+     * item's picture, its wording becomes an alias, and its row is removed. The stored file is
+     * left, as regeneration leaves the file it replaces, because mail already sent links to it.
+     *
+     * @return array{seen: int, kept: int, retired: int} kept is how far the caller's offset moves on: a
+     *                                     removed row no longer occupies a place in the order.
+     *                                     seen is 0 when the cleaner gave no answers, so the
+     *                                     caller retries the same rows next run.
+     */
+    public function backfill(int $offset, int $limit, bool $dryRun = false): array
     {
         $rows = DB::table('ai_images')
             ->where('status', 'active')
@@ -92,17 +105,76 @@ class AiImageMatcherService
             ->orderBy('id')
             ->offset($offset)
             ->limit($limit)
-            ->get(['id', 'name']);
+            ->get(['id', 'name', 'externaluid']);
 
         $items = $this->cleaner->clean($rows->pluck('name')->all());
-        foreach ($rows as $r) {
-            $item = $items[$r->name] ?? null;
-            if ($item && $item !== ItemCleanerService::NONE) {
-                $this->alias(ItemMatchKey::key($item), (int) $r->id, 'itemkey');
-            }
+        if (! $items) {
+            return ['seen' => 0, 'kept' => 0, 'retired' => 0];
         }
 
-        return $items ? $rows->count() : 0;
+        $kept = 0;
+        $retired = 0;
+        foreach ($rows as $r) {
+            $item = $items[$r->name] ?? null;
+            $key = $item && $item !== ItemCleanerService::NONE ? ItemMatchKey::key($item) : '';
+            $canonical = $key === '' ? null : $this->itemPicture($key);
+            // A dry run writes no aliases, so it remembers which picture each item would get.
+            if (! $canonical && $dryRun && isset($this->dryRunKeys[$key])) {
+                $canonical = (object) ['id' => $this->dryRunKeys[$key], 'externaluid' => ''];
+            }
+
+            if ($key !== '' && $canonical && $canonical->id !== (int) $r->id) {
+                if (! $dryRun) {
+                    $this->retire($r, $canonical);
+                }
+                $retired++;
+                // A dry run removes nothing, so the row still holds its place.
+                $kept += $dryRun ? 1 : 0;
+
+                continue;
+            }
+            if ($key !== '' && ! $canonical) {
+                // Rows come most-used first, so the first picture of an item is its best known.
+                if ($dryRun) {
+                    $this->dryRunKeys[$key] = (int) $r->id;
+                } else {
+                    DB::table('ai_image_aliases')->updateOrInsert(['name' => $key], ['aiimageid' => (int) $r->id, 'method' => 'itemkey']);
+                }
+            }
+            $kept++;
+        }
+
+        return ['seen' => $rows->count(), 'kept' => $kept, 'retired' => $retired];
+    }
+
+    /** The active picture an item key points at, or null. */
+    private function itemPicture(string $key): ?object
+    {
+        $row = DB::table('ai_image_aliases')
+            ->join('ai_images', 'ai_images.id', '=', 'ai_image_aliases.aiimageid')
+            ->where('ai_image_aliases.name', $key)
+            ->where('ai_images.status', 'active')
+            ->whereNotNull('ai_images.externaluid')
+            ->first(['ai_images.id', 'ai_images.externaluid']);
+
+        return $row ? (object) ['id' => (int) $row->id, 'externaluid' => $row->externaluid] : null;
+    }
+
+    private function retire(object $old, object $canonical): void
+    {
+        DB::transaction(function () use ($old, $canonical) {
+            DB::table('messages_attachments')
+                ->where('externaluid', $old->externaluid)
+                ->update(['externaluid' => $canonical->externaluid]);
+            DB::table('ai_image_aliases')
+                ->where('aiimageid', $old->id)
+                ->update(['aiimageid' => $canonical->id]);
+            DB::table('ai_image_aliases')->insertOrIgnore([
+                'name' => mb_substr($old->name, 0, 255), 'aiimageid' => $canonical->id, 'method' => 'item',
+            ]);
+            DB::table('ai_images')->where('id', $old->id)->delete();
+        });
+        Log::info("AiImageMatcher: retired picture {$old->id} '{$old->name}' for {$canonical->id}");
     }
 
     /**

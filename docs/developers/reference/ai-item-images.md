@@ -36,7 +36,7 @@ drawn only for an item we have never drawn.
 | Pictures for posts that have none, every minute | `MessageIllustrationsService` |
 | Which item a name means | `ItemCleanerService` (Gemini, fixed model `AI_IMAGE_CLEAN_MODEL`) |
 | Reuse or draw | `AiImageMatcherService` |
-| Item keys for pictures drawn before this | `ai:images:backfill-items`, every 30 minutes until done |
+| Bring pictures drawn before this onto sharing, retiring duplicates | `ai:images:backfill-items` (`--dry-run` to count), every 30 minutes until done |
 | Moderator removes a picture | `recordAIDeletions` and `removeAIImageAlias` in `message/message.go` |
 
 `ai_image_aliases` holds two kinds of row. `item` rows point a post's wording at a picture, and the
@@ -52,6 +52,15 @@ When a name has no picture, the batch asks the cleaner for its item, then:
 
 Job illustrations share `ai_images` but are never offered to a post: the backfill only keys
 pictures a post has used.
+
+### Pictures drawn before this
+
+`ai:images:backfill-items` brings them onto sharing, most-used first. The first picture of an item
+becomes the item's picture. Any later picture of the same item is retired: its posts are pointed
+at the item's picture, its wording and aliases are pointed there too, and its `ai_images` row is
+removed. The stored image file is left, as regeneration leaves the file it replaces, because mail
+already sent links to it. In the replay, the 28,378 pictures posts have used came to about 8,700
+items, so expect most rows to go. `--dry-run` counts what it would retire and changes nothing.
 
 ## How it was measured
 
