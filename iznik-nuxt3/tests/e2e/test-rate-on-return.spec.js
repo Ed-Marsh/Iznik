@@ -218,8 +218,8 @@ test.describe('rate-on-return', () => {
       : body
     expect(taker?.info?.ratings?.Mine).toBe('Up')
 
-    // Nobody left: thanks, and the modal goes.
-    await expect(dialog).toContainText('Thanks!')
+    // Nobody left: the modal goes. It closes as soon as the last person is rated, so its
+    // "Thanks!" is gone by the time the rating and refetch above have been waited for.
     await expect(dialog).toBeHidden({ timeout: timeouts.ui.appearance })
 
     // Another arrival the same day, with the server still naming someone, asks nothing.
