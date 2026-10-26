@@ -218,8 +218,8 @@ test.describe('rate-on-return', () => {
       : body
     expect(taker?.info?.ratings?.Mine).toBe('Up')
 
-    // Nobody left: the modal goes. It closes as soon as the last person is rated, so its
-    // "Thanks!" is gone by the time the rating and refetch above have been waited for.
+    // Nobody left: the modal says thanks for a second and a half, then goes. The unit test
+    // checks the thanks; here it is enough that the modal closes.
     await expect(dialog).toBeHidden({ timeout: timeouts.ui.appearance })
 
     // Another arrival the same day, with the server still naming someone, asks nothing.
