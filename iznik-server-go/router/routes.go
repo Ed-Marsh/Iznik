@@ -2176,6 +2176,16 @@ func SetupRoutes(app *fiber.App) {
 		rg.Post("/merge", merge.PostMerge)
 		rg.Delete("/merge", merge.DeleteMerge)
 
+		// @Router /discourse/relink [post]
+		// @Summary Re-link a moderator's Discourse account after an account merge
+		// @Description Support or Admin. Moves the Discourse account linked to an account merged into userid onto userid, then updates its email and name. Merges and Discourse sign-in do this by themselves; this is for merges from before they did.
+		// @Tags discourse
+		// @Accept json
+		// @Produce json
+		// @Security BearerAuth
+		// @Success 200 {object} fiber.Map
+		rg.Post("/discourse/relink", sso.RelinkHandler)
+
 		// Domains
 		rg.Get("/domains", domain.GetDomain)
 

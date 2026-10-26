@@ -1695,6 +1695,29 @@
     }
    }
   },
+  "/discourse/relink": {
+   "post": {
+    "description": "Support or Admin. Moves the Discourse account linked to an account merged into userid onto userid, then updates its email and name. Merges and Discourse sign-in do this by themselves; this is for merges from before they did.",
+    "tags": [
+     "discourse"
+    ],
+    "summary": "Re-link a moderator's Discourse account after an account merge",
+    "operationId": "relinkDiscourse",
+    "responses": {
+     "200": {
+      "description": "Whether an account was re-linked"
+     },
+     "403": {
+      "$ref": "#/responses/errorResponse"
+     }
+    },
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ]
+   }
+  },
   "/discourse_sso": {
    "get": {
     "description": "Handles Discourse single sign-on. Reads sso and sig query params.",
