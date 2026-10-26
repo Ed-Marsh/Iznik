@@ -47,6 +47,47 @@ function reconcileBugStates(db: DB): void {
   }
 }
 
+// Discourse refuses a post over 32000 characters, and the edit then fails every lap. Stay a little
+// under it so the edit reason and any encoding have room.
+export const MAX_STATUS_POST_CHARS = 30000
+
+export interface StatusSection {
+  title: string
+  header: string[]
+  rows: string[]
+  // Lower loses rows first when the post is too long.
+  dropOrder: number
+}
+
+// Join the sections into the post, dropping rows from the end of the least important tables until it
+// fits MAX_STATUS_POST_CHARS. A table that lost rows says how many are not shown; one with no rows at
+// all is left out.
+export function fitStatusPost(head: string[], sections: StatusSection[], tail: string[] = [], max = MAX_STATUS_POST_CHARS): string {
+  const shown = sections.map(s => s.rows.length)
+  const assemble = () => {
+    const lines = [...head]
+    sections.forEach((s, i) => {
+      if (s.rows.length === 0) return
+      lines.push(`## ${s.title}`, '')
+      if (shown[i] > 0) lines.push(...s.header, ...s.rows.slice(0, shown[i]))
+      const hidden = s.rows.length - shown[i]
+      if (hidden > 0) lines.push('', `*…and ${hidden} more not shown here, to keep this post within Discourse's length limit.*`)
+      lines.push('')
+    })
+    return [...lines, ...tail].join('\n')
+  }
+
+  const byDrop = sections.map((s, i) => i).sort((x, y) => sections[x].dropOrder - sections[y].dropOrder)
+  let raw = assemble()
+  while (raw.length > max) {
+    const i = byDrop.find(j => shown[j] > 0)
+    if (i === undefined) break
+    shown[i]--
+    raw = assemble()
+  }
+  return raw
+}
+
 export function renderStatusPostBody(db: DB): StatusRenderResult {
   reconcileBugStates(db)
   const open = listOpenDiscourseBugs(db)
@@ -73,100 +114,64 @@ export function renderStatusPostBody(db: DB): StatusRenderResult {
   const prRows = db.prepare(`SELECT number, deploy_state FROM pr`).all() as Array<{ number: number; deploy_state: string | null }>
   for (const row of prRows) deployStates.set(row.number, row.deploy_state)
 
-  const lines: string[] = []
-  lines.push('> :robot: **Produced by AI.** This post is rewritten automatically every time our bug monitor runs — no human types it.', '')
-  lines.push('This is a live list of known bugs and issues on Freegle. It covers problems reported here and errors detected automatically in the site.', '')
-  lines.push(`*Last updated: ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC*`, '')
+  const head: string[] = []
+  head.push('> :robot: **Produced by AI.** This post is rewritten automatically every time our bug monitor runs — no human types it.', '')
+  head.push('This is a live list of known bugs and issues on Freegle. It covers problems reported here and errors detected automatically in the site.', '')
+  head.push(`*Last updated: ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC*`, '')
 
   const escapeCell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ')
   const prLink = (n: number | null) =>
     n ? `[#${n}](https://github.com/Freegle/Iznik/pull/${n})` : ''
+  const liveOf = (pr: number | null, otherwise: string) => {
+    if (!pr) return otherwise
+    const ds = deployStates.get(pr)
+    if (ds === 'deployed' || ds === 'live') return ':white_check_mark: Live'
+    if (ds === 'pending_deploy') return ':hourglass: Deploying'
+    return otherwise
+  }
+  const who = (b: { reporter: string | null; topic: number; post: number }) =>
+    `[@${b.reporter ?? 'reporter'}](${DISCOURSE_BASE}/t/${b.topic}/${b.post})`
+  const excerptOf = (e: string | null) => escapeCell((e ?? '').slice(0, 160))
 
-  // ---- Bugs with a PR open (actively being fixed) ----
   const inProgress = open.filter(b => b.state === 'fix-queued' && b.pr_number)
-
-  if (inProgress.length > 0) {
-    lines.push('## Bugs being fixed', '')
-    lines.push('| Area | Reporter | Issue | PR | Status |')
-    lines.push('|---|---|---|---|---|')
-    for (const b of inProgress) {
-      const url = `${DISCOURSE_BASE}/t/${b.topic}/${b.post}`
-      const excerpt = escapeCell((b.excerpt ?? '').slice(0, 160))
-      const pr = prLink(b.pr_number)
-      const area = b.feature_area ?? '—'
-      let liveStatus = ':hammer_and_wrench: In progress'
-      if (b.pr_number) {
-        const ds = deployStates.get(b.pr_number)
-        if (ds === 'deployed' || ds === 'live') liveStatus = ':white_check_mark: Live'
-        else if (ds === 'pending_deploy') liveStatus = ':hourglass: Deploying'
-      }
-      lines.push(`| ${area} | [@${b.reporter ?? 'reporter'}](${url}) | ${excerpt} | ${pr} | ${liveStatus} |`)
-    }
-    lines.push('')
-  }
-
-  // ---- Bugs queued for investigation (no PR yet) ----
   const queued = open.filter(b => ['open', 'investigating'].includes(b.state))
-
-  if (queued.length > 0) {
-    lines.push('## In our queue', '')
-    lines.push('| Area | Reporter | Issue |')
-    lines.push('|---|---|---|')
-    for (const b of queued) {
-      const url = `${DISCOURSE_BASE}/t/${b.topic}/${b.post}`
-      const excerpt = escapeCell((b.excerpt ?? '').slice(0, 160))
-      const area = b.feature_area ?? '—'
-      lines.push(`| ${area} | [@${b.reporter ?? 'reporter'}](${url}) | ${excerpt} |`)
-    }
-    lines.push('')
-  }
-
+  const deferred = open.filter(b => b.state === 'deferred')
   const working = [...inProgress, ...queued]
 
-  // ---- Recently fixed ----
-  if (recentFixed.length > 0) {
-    lines.push('## Fixed in the last 7 days', '')
-    lines.push('| Area | Reporter | Issue | PR | Live? |')
-    lines.push('|---|---|---|---|---|')
-    for (const b of recentFixed) {
-      const url = `${DISCOURSE_BASE}/t/${b.topic}/${b.post}`
-      const excerpt = escapeCell((b.excerpt ?? '').slice(0, 160))
-      const area = b.feature_area ?? '—'
-      const pr = prLink(b.pr_number)
-      let liveStatus = ''
-      if (b.pr_number) {
-        const ds = deployStates.get(b.pr_number)
-        if (ds === 'deployed' || ds === 'live') liveStatus = ':white_check_mark: Live'
-        else if (ds === 'pending_deploy') liveStatus = ':hourglass: Deploying'
-        else liveStatus = ':hammer_and_wrench: Pending'
-      }
-      lines.push(`| ${area} | [@${b.reporter ?? 'reporter'}](${url}) | ${excerpt} | ${pr} | ${liveStatus} |`)
-    }
-    lines.push('')
-  }
+  // Each table, in the order it appears. dropOrder says which loses rows first when the post is
+  // over Discourse's length limit: the fixed list goes first, the bugs being fixed last.
+  const sections: StatusSection[] = [
+    {
+      title: 'Bugs being fixed',
+      header: ['| Area | Reporter | Issue | PR | Status |', '|---|---|---|---|---|'],
+      rows: inProgress.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${prLink(b.pr_number)} | ${liveOf(b.pr_number, ':hammer_and_wrench: In progress')} |`),
+      dropOrder: 3,
+    },
+    {
+      title: 'In our queue',
+      header: ['| Area | Reporter | Issue |', '|---|---|---|'],
+      rows: queued.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} |`),
+      dropOrder: 2,
+    },
+    {
+      title: 'Fixed in the last 7 days',
+      header: ['| Area | Reporter | Issue | PR | Live? |', '|---|---|---|---|---|'],
+      rows: recentFixed.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${prLink(b.pr_number)} | ${b.pr_number ? liveOf(b.pr_number, ':hammer_and_wrench: Pending') : ''} |`),
+      dropOrder: 0,
+    },
+    {
+      title: 'Waiting on more information',
+      header: ['| Area | Reporter | Issue | What we\'re waiting for |', '|---|---|---|---|'],
+      rows: deferred.map(b => `| ${b.feature_area ?? '—'} | ${who(b)} | ${excerptOf(b.excerpt)} | ${escapeCell(b.reason ?? '—')} |`),
+      dropOrder: 1,
+    },
+  ]
 
-  // ---- Deferred ----
-  const deferred = open.filter(b => b.state === 'deferred')
-  if (deferred.length > 0) {
-    lines.push('## Waiting on more information', '')
-    lines.push('| Area | Reporter | Issue | What we\'re waiting for |')
-    lines.push('|---|---|---|---|')
-    for (const b of deferred) {
-      const url = `${DISCOURSE_BASE}/t/${b.topic}/${b.post}`
-      const excerpt = escapeCell((b.excerpt ?? '').slice(0, 160))
-      const reason = escapeCell(b.reason ?? '—')
-      const area = b.feature_area ?? '—'
-      lines.push(`| ${area} | [@${b.reporter ?? 'reporter'}](${url}) | ${excerpt} | ${reason} |`)
-    }
-    lines.push('')
-  }
-
-  if (working.length === 0 && recentFixed.length === 0 && deferred.length === 0) {
-    lines.push('*Nothing on the list right now — all caught up!*', '')
-  }
+  const empty = working.length === 0 && recentFixed.length === 0 && deferred.length === 0
+  const raw = fitStatusPost(head, sections, empty ? ['*Nothing on the list right now — all caught up!*', ''] : [])
 
   return {
-    raw: lines.join('\n'),
+    raw,
     bugCount: working.length + deferred.length,
     draftCount: pendingDraftCount,
     fixedRecentCount: recentFixed.length,
