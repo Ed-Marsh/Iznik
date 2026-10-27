@@ -3453,6 +3453,9 @@ jobs:
             echo "export COVERALLS_SERVICE_NAME=circleci" >> $BASH_ENV
             echo "export COVERALLS_SERVICE_NUMBER=${CIRCLE_BUILD_NUM}" >> $BASH_ENV
             echo "export COVERALLS_PARALLEL=true" >> $BASH_ENV
+            # A minute before now, so the webhook step can tell this job's Coveralls
+            # commit statuses from an earlier run of the same commit (clock skew margin).
+            echo "export COV_START_ISO=$(date -u -d '-60 seconds' +%Y-%m-%dT%H:%M:%SZ)" >> $BASH_ENV
             # Deliberately NOT exporting COVERALLS_SERVICE_JOB_ID here. In a
             # Coveralls parallel build each flag upload is a separate JOB inside
             # one build: they share service_number and must differ in
@@ -3652,25 +3655,48 @@ jobs:
               # false, precisely because skipping broke carryforward. Today a
               # flag is missing because the build FAILED before that suite
               # produced its artefact, and these steps are `when: always`.
+              # Coveralls answers an upload as soon as it is queued and attaches the job
+              # to the build some seconds later (6 to 50s after the ack on job 43482,
+              # 2026-10-27). The webhook closes the build with whatever is attached at
+              # that moment. Sent straight after the uploads, it closed the build with
+              # nothing in it and answered "jobs":0 on every run since the check below
+              # was added (2026-08-18); the four jobs still landed afterwards, so the
+              # warning fired on healthy builds and said to check job ids that were
+              # fine. Wait for Coveralls to post its per-flag commit status for each
+              # upload first, so the build closes with its jobs present and the reply's
+              # count means something. The statuses are counted from COV_START_ISO so a
+              # rerun of the same commit does not satisfy this with last time's.
+              if [ -n "${GITHUB_TOKEN:-}" ] && [ -n "${CIRCLE_SHA1:-}" ]; then
+                waited=0; seen=0
+                while [ $waited -lt 180 ]; do
+                  seen=$(curl -sf -H "Authorization: token $GITHUB_TOKEN" \
+                    "https://api.github.com/repos/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/commits/${CIRCLE_SHA1}/status?per_page=100" \
+                    | jq --arg since "${COV_START_ISO:-}" '[.statuses[] | select(.context | startswith("Coveralls - ")) | select(.created_at >= $since)] | length' 2>/dev/null || echo 0)
+                  [ "${seen:-0}" -ge "${COV_UPLOADS:-0}" ] && break
+                  sleep 5; waited=$((waited + 5))
+                done
+                echo "📊 Coveralls has attached ${seen:-0} of $COV_UPLOADS job(s) after ${waited}s"
+              else
+                echo "ℹ️ No GITHUB_TOKEN or CIRCLE_SHA1: not waiting for Coveralls to attach the jobs"
+              fi
               echo "📊 Uploaded $COV_UPLOADS reports. Sending webhook (carryforward=go,laravel,vitest,playwright)..."
               WEBHOOK_OUT=$(curl -sf -X POST "https://coveralls.io/webhook?repo_token=${COVERALLS_REPO_TOKEN}" \
                 -H "Content-Type: application/json" \
                 -d "{\"payload\":{\"build_num\":\"${CIRCLE_BUILD_NUM}\",\"status\":\"done\",\"carryforward\":[\"go\",\"laravel\",\"vitest\",\"playwright\"]}}") \
                 && echo "✅ Webhook sent: $WEBHOOK_OUT" || echo "⚠️ Webhook failed"
-              # The reply carries the number of parallel jobs Coveralls actually
-              # grouped into this build. It must be >= the number we uploaded.
-              # A zero here means the uploads did not register as parallel jobs,
-              # so `carryforward` silently did nothing and the build's coverage
-              # is whatever subset happened to land - which is how the "-10.3%"
-              # phantom regression on full-stack PRs was produced. Say so
-              # loudly rather than letting it rot unnoticed again.
+              # The reply carries the number of jobs in the build when it closed. It
+              # must be >= the number we uploaded. Lower, after the wait above, means
+              # an upload did not register as a job of this build, so `carryforward`
+              # did nothing for it and the build's coverage is whatever subset landed,
+              # which is how the "-10.3%" phantom regression on full-stack PRs was
+              # produced. Say so loudly rather than letting it rot unnoticed again.
               WEBHOOK_JOBS=$(echo "$WEBHOOK_OUT" | sed -n 's/.*"jobs":[[:space:]]*\([0-9]*\).*/\1/p')
               if [ "${WEBHOOK_JOBS:-0}" -lt "${COV_UPLOADS:-0}" ]; then
-                echo "⚠️ Coveralls grouped ${WEBHOOK_JOBS:-0} parallel job(s) but we uploaded ${COV_UPLOADS} report(s)."
-                echo "⚠️ carryforward will not have applied; the aggregate coverage for this build is unreliable."
-                echo "⚠️ Check that each upload sets a distinct COVERALLS_SERVICE_JOB_ID."
+                echo "⚠️ Coveralls closed the build with ${WEBHOOK_JOBS:-0} job(s) but we uploaded ${COV_UPLOADS} report(s)."
+                echo "⚠️ carryforward will not have applied to the missing ones; the aggregate coverage for this build is unreliable."
+                echo "⚠️ Check that each upload sets a distinct COVERALLS_SERVICE_JOB_ID and the same COVERALLS_SERVICE_NUMBER."
               else
-                echo "✅ Coveralls grouped ${WEBHOOK_JOBS} parallel job(s)"
+                echo "✅ Coveralls closed the build with ${WEBHOOK_JOBS} job(s)"
               fi
             else echo "⚠️ No coverage uploaded"; fi
 

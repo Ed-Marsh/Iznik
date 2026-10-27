@@ -412,3 +412,14 @@ step that actually goes red and prints the output. A job where the parallel suit
 `killed` and nothing names a test is this: read the collect step, not the suites. For Go
 coverage the join is `Wait for Go coverage upload`; a webhook count one short means that
 upload did not finish or did not upload, and its own step's log says which.
+
+## "Coveralls grouped 0 parallel job(s)" on a build that has all four
+
+The webhook that closes a parallel build answers with the number of jobs attached at that
+moment, and Coveralls attaches a job some seconds after it acknowledges the upload (6 to 50s
+on job 43482). Sent straight after the last upload, the webhook closed every build with
+nothing in it and the check printed this warning on every run from 2026-08-18 to
+2026-10-27, while the GitHub checks showed four `Coveralls - <flag>` jobs and the aggregate
+was right. The step now waits for those four commit statuses before sending the webhook. If
+the warning comes back, read the GitHub statuses for the commit first: four jobs there means
+the wait ran out, not that the ids are wrong.
