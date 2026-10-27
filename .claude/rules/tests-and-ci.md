@@ -410,16 +410,17 @@ happens afterwards. The real result is the `pass`/`fail` written to
 `FAIL-FAST: background check <name> failed`) and by `Collect background checks`, which is the
 step that actually goes red and prints the output. A job where the parallel suites show as
 `killed` and nothing names a test is this: read the collect step, not the suites. For Go
-coverage the join is `Wait for Go coverage upload`; a webhook count one short means that
+coverage the join is `Wait for Go coverage upload`; a Coveralls job count one short means that
 upload did not finish or did not upload, and its own step's log says which.
 
 ## "Coveralls grouped 0 parallel job(s)" on a build that has all four
 
-The webhook that closes a parallel build answers with the number of jobs attached at that
-moment, and Coveralls attaches a job some seconds after it acknowledges the upload (6 to 50s
-on job 43482). Sent straight after the last upload, the webhook closed every build with
-nothing in it and the check printed this warning on every run from 2026-08-18 to
-2026-10-27, while the GitHub checks showed four `Coveralls - <flag>` jobs and the aggregate
-was right. The step now waits for those four commit statuses before sending the webhook. If
-the warning comes back, read the GitHub statuses for the commit first: four jobs there means
-the wait ran out, not that the ids are wrong.
+Coveralls only processes the queued uploads once the webhook closes the build, and the
+webhook reply counts the jobs before it does that. So the reply said `"jobs":0` on every run
+from 2026-08-18 to 2026-10-27 while the four `Coveralls - <flag>` jobs landed 10 to 20s
+later and the aggregate was right (jobs 43482 and 43488: webhook, then the four per-flag
+commit statuses, then the build's `calculated_at`). Waiting before the webhook does not help;
+the statuses never appear until it is sent. The step now checks the real thing after the
+webhook: the per-flag commit statuses on GitHub, counted from when the coverage setup
+started. If that warns, read the commit's statuses first; four of them means the wait ran
+out, not that the ids are wrong.
